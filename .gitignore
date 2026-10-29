@@ -1,0 +1,48 @@
+# --- 보안: API 키 ---
+.env
+.env.*
+!.env.example
+# .env.example 에는 키 이름만 적고 값은 비워서 올린다
+# 예) CUSTOMS_API_KEY=
+#     ECOS_API_KEY=
+#     LLM_MODE=mock
+
+# --- 가상환경 ---
+.venv/
+venv/
+env/
+
+# --- 파이썬 캐시 ---
+__pycache__/
+*.py[cod]
+
+# --- 테스트 / 도구 캐시 ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Streamlit 로컬 설정 (secrets에 키를 넣을 수 있음) ---
+.streamlit/secrets.toml
+
+# --- 실행하면 생기는 파일 ---
+# 예측 이력은 실행할 때마다 바뀌는 결과물
+data/forecasts.csv
+*.log
+# 단, pytest 결과 로그를 제출물로 올린다면 위 *.log 대신 아래처럼 예외를 둔다
+# !pytest_result.log
+
+# --- 수집 데이터 (팀에서 결정 후 주석 해제) ---
+# API로 다시 받을 수 있는 자료라 올리지 않으려면 아래 주석을 푼다
+# data/exports.csv
+# data/fx.csv
+# actuals.csv, transcripts/ 는 팀이 직접 만든 입력이라 올리는 것을 기본으로 한다
+# tests/fixtures/ 는 테스트에 필요하므로 절대 무시하지 않는다
+
+# --- 편집기 / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
