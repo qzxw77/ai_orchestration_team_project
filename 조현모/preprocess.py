@@ -1,3 +1,8 @@
+"""[모듈 2] 전처리: 수출 원자료 정제 (알트 ALT · SK하이닉스 분기 매출 나우캐스팅).
+
+조현모 담당 clean_exports와 그 내부 도우미만 있다. 파일 입출력·외부 API 호출을 하지 않는다.
+"""
+
 from datetime import datetime
 import math
 
@@ -10,7 +15,8 @@ REGION_NAME_MAP: dict[str, str] = {
     "충청북도 청주시": "청주시",
 }
 ALLOWED_REGIONS: tuple[str, ...] = ("이천시", "청주시")
-YM_FORMATS: tuple[str, ...] = ("%Y-%m", "%Y%m", "%Y.%m")
+YM_FORMATS: tuple[str, ...] = ("%Y-%m", "%Y%m", "%Y.%m", "%Y/%m")
+COLLECTED_AT_FORMAT: str = "%Y-%m-%d"
 
 _EXPORT_COLUMNS: list[str] = [
     "ym",
@@ -43,28 +49,15 @@ def _parse_ym(value: object) -> str | None:
         text = str(value).strip()
 
     for fmt in YM_FORMATS:
-        if fmt == "%Y-%m":
-            valid_shape = (
-                len(text) == 7
-                and text[4] == "-"
-                and text[:4].isdigit()
-                and text[5:].isdigit()
-            )
-        elif fmt == "%Y%m":
-            valid_shape = len(text) == 6 and text.isdigit()
-        else:
-            valid_shape = (
-                len(text) == 7
-                and text[4] == "."
-                and text[:4].isdigit()
-                and text[5:].isdigit()
-            )
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        # 다시 같은 형식으로 썼을 때 원래 글자와 같아야 인정한다("20267", "2026-7" 같은 애매한 값 차단)
+        if parsed.strftime(fmt) == text:
+            return parsed.strftime("%Y-%m")
 
-        if valid_shape:
-            try:
-                return datetime.strptime(text, fmt).strftime("%Y-%m")
-            except ValueError:
-                return None
+    return None
 
     return None
 
@@ -81,10 +74,25 @@ def _parse_collected_at(value: object) -> str | None:
     if pd.isna(value):
         return None
 
-    parsed = pd.to_datetime(value, errors="coerce")
+    parsed = pd.to_datetime(value, format=COLLECTED_AT_FORMAT, errors="coerce")
     if pd.isna(parsed):
         return None
     return parsed.strftime("%Y-%m-%d")
+
+
+def _normalize_region(value: object) -> str | None:
+    """지역 이름의 공백을 지우고 REGION_NAME_MAP으로 표준 이름으로 바꾼다.
+
+    Args:
+        value: 지역 이름 값.
+
+    Returns:
+        표준 지역 이름. 결측이면 None.
+    """
+    if pd.isna(value):
+        return None
+    name = str(value).strip()
+    return REGION_NAME_MAP.get(name, name)
 
 
 def _normalize_hs_code(value: object) -> str | None:
@@ -107,6 +115,10 @@ def _normalize_hs_code(value: object) -> str | None:
 
 def clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame:
     """관세청 수출 원자료를 정제해 exports 표를 반환한다.
+
+    지저분한 행(결측·숫자 아님·없는 달·음수·대상 외 지역)은 예외 없이 제거하고 export_usd = 0은 남긴다.
+    키(ym, region, hs_code)가 같으면 collected_at이 가장 최근인 1행만 남긴다(빈 수집일은 가장 오래된 것).
+    빠진 달을 0으로 채우거나 합계를 계산하지 않는다.
 
     Args:
         raw_df: 연월, 지역, HS 코드, 수출액, 수집일을 포함한 원자료.
@@ -133,13 +145,7 @@ def clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"필수 열 누락: {', '.join(missing)}")
 
     result["ym"] = result["ym"].map(_parse_ym)
-    result["region"] = result["region"].map(
-        lambda value: (
-            REGION_NAME_MAP.get(str(value).strip(), str(value).strip())
-            if not pd.isna(value)
-            else None
-        )
-    )
+    result["region"] = result["region"].map(_normalize_region)
     result["hs_code"] = result["hs_code"].map(_normalize_hs_code)
 
     amounts = pd.to_numeric(
@@ -156,7 +162,6 @@ def clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame:
         & result["export_usd"].notna()
         & result["export_usd"].ge(0)
         & result["region"].isin(ALLOWED_REGIONS)
-        & result["hs_code"].notna()
     )
     result = result.loc[valid_rows].copy()
 
@@ -173,6 +178,6 @@ def clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame:
 
     return (
         result.loc[:, _EXPORT_COLUMNS]
-        .sort_values("ym", kind="stable")
+        .sort_values(["ym", "region", "hs_code"], kind="stable")
         .reset_index(drop=True)
     )
