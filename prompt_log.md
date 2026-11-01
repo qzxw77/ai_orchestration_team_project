@@ -76,7 +76,7 @@
     
     [통과해야 할 테스트, test_detect_anomaly.py, 테스트를 고쳐서 통과시키지 말 것]
     공통 입력 A: 매달 이천시 62.5% + 청주시 37.5% 두 행 (단위 1억 달러)
-    2024-09~2025-08 매달 64 / 2025-09~2026-08: 64, 88, 40, 80, 48, 88, 40, 64, 64, 64, 64, 64
+    2024-09\~2025-08 매달 64 / 2025-09\~2026-08: 64, 88, 40, 80, 48, 88, 40, 64, 64, 64, 64, 64
     직전 12개월 전년동월비 평균 0, 표본 표준편차 25
     - 정상 1: 대상 월 2026-09 합계 80 -> yoy_pct 25.0, z_score 1.0, is_anomaly False, reason "정상"
     - 정상 2: 합계 128 -> yoy_pct 100.0, z_score 4.0, is_anomaly True, reason "급증"
@@ -100,11 +100,11 @@
 | 1 | 91~94 | `setdefault(ym, {"이천시": 0.0, "청주시": 0.0})[region] += amount` | `setdefault(ym, {})`로 빈 dict를 두고, 실제로 들어온 지역만 `regions.get(region, 0.0) + amount`로 더함 | 프롬프트 31줄 "두 지역 중 하나만 있는 달은 월 합계가 없는 달로 본다" 위반. 처음 보는 달에 두 지역을 0.0으로 미리 넣어서 원본 99줄의 `all(...)` 검사가 항상 True가 됨. 프롬프트의 공통 입력 A에서 2025-09 청주시 자료가 빠지면 실제 0%인 달을 +60% 급증으로 오경보 |
 | 2 | 60~62, 134 | `threshold_value = float(threshold)`, `if not math.isfinite(threshold_value): return default` | 세 줄 삭제, 134줄에서 `threshold`를 그대로 비교 | threshold가 비정상일 때 "데이터 부족"을 돌려줘 원인(기준값 문제)과 결과(자료 부족)가 맞지 않고, 프롬프트 25줄의 판정 정의(무한대면 "정상")와도 다름. 또한 프롬프트에도 없었던 내용이라 삭제함 |
 | 3 | 11, 22 | 보조 함수 `_is_valid_ym`, `_shift_ym`에 docstring 없음 | 두 함수에 설명, Args, Returns, Raises docstring 추가 | 프롬프트 41줄 "타입 힌트와 한국어 docstring(설명, Args, Returns, Raises) 필수" 위반 |
-| 4 | 56, 150~151 (함께 16, 17줄) | 함수 본문 전체를 `try`로 감싸고 `except (AttributeError, KeyError, TypeError, ValueError, OverflowError): return default` | try/except를 지우고 본문 들여쓰기를 한 단계 줄임. 그 결과 드러난 `_is_valid_ym`의 `isdigit()`을 `isdecimal()`로 바꿈 | 리딩 체크리스트 4번 "광범위한 except"에 해당. 코드 실수로 난 KeyError, TypeError도 "데이터 부족"으로 바뀌어 자료가 정말 부족한 경우와 구별할 수 없음. 프롬프트 27줄을 따른 결과이므로 프롬프트도 고칠 대상(비고) |
+| 4 | 56, 150~151 (함께 16, 17줄) | 함수 본문 전체를 `try`로 감싸고 `except (AttributeError, KeyError, TypeError, ValueError, OverflowError): return default` | try/except를 지우고 본문 들여쓰기를 한 단계 줄임. “try가 없어도 형식 검사가 예외를 내지 않도록 `isdigit()`을 `isdecimal()`로 보완 | 리딩 체크리스트 4번 "광범위한 except"에 해당. 코드 실수로 난 KeyError, TypeError도 "데이터 부족"으로 바뀌어 자료가 정말 부족한 경우와 구별할 수 없음. 프롬프트 27줄을 따른 결과이므로 프롬프트도 고칠 대상(비고) |
 
 - 테스트 결과: pytest 6 passed
 - 비고:  
-  1) 결함 4는 프롬프트 27줄 "어떤 경우에도 예외를 발생시키지 않는다"를 Copilot이 그대로 따른 결과다. 그러나 리딩 체크리스트 4번(광범위한 except)에 해당하고 실제로 오류를 숨기고 있었으므로 수정했다. 원인은 프롬프트 문구에 있으므로 다음 사이클에서는 27줄을 "자료 문제(형식 오류, 빈 표, 빠진 달, 0 나누기, 표준편차 0)로는 예외를 내지 않고 기본값을 반환한다. 함수 전체를 try/except로 감싸지 않는다"로 고친다.
+  1) 결함 4는 프롬프트 27줄 "어떤 경우에도 예외를 발생시키지 않는다"를 Copilot이 그대로 따른 결과다. 그러나 리딩 체크리스트 4번(광범위한 except)에 해당하고 코드 오류가 "데이터 부족"으로 가려질 수 있어 수정했다. 원인은 프롬프트 문구에 있으므로 다음 사이클에서는 27줄을 "자료 문제(형식 오류, 빈 표, 빠진 달, 0 나누기, 표준편차 0)로는 예외를 내지 않고 기본값을 반환한다. 함수 전체를 try/except로 감싸지 않는다"로 고친다.
   2) 수정 4 이후 숫자가 아닌 threshold처럼 호출하는 쪽이 잘못한 경우에는 TypeError가 난다. 의도한 동작이며 docstring Raises에 적었다
 
 ---
