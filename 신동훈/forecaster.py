@@ -2,6 +2,7 @@ import pandas as pd
 
 
 RATIO_WINDOW = 4
+MONTHS_PER_QUARTER = 3
 
 
 def _quarter_index(quarter: str) -> int | None:
@@ -81,131 +82,57 @@ def estimate_revenue(
         "status": "no_data",
     }
 
-    target_index = _quarter_index(target_quarter)
-    if target_index is None:
+    if _quarter_index(target_quarter) is None:
         return result
 
-
-
-    target_rows = quarterly_df[
-        quarterly_df["quarter"] == target_quarter
-    ]
+    # 1) 대상 분기 행 확인 → 없거나 자료가 0개월이거나 환율이 없으면 no_data
+    target_rows = quarterly_df[quarterly_df["quarter"] == target_quarter]
     if target_rows.empty:
         return result
 
     target_row = target_rows.iloc[0]
-    months_value = target_row["months_available"]
-    if pd.isna(months_value):
+    if pd.isna(target_row["months_available"]):
         return result
-
-    try:
-        months_available = int(months_value)
-    except (TypeError, ValueError, OverflowError):
-        return result
-
+    months_available = int(target_row["months_available"])
     if months_available <= 0:
         return result
 
     result["months_available"] = months_available
 
-    export_usd = target_row["export_usd"]
-    fx_avg = target_row["fx_avg"]
-    if pd.isna(export_usd) or pd.isna(fx_avg):
+    if pd.isna(target_row["export_usd"]) or pd.isna(target_row["fx_avg"]):
         return result
+    export_usd = float(target_row["export_usd"])
+    fx_avg = float(target_row["fx_avg"])
 
-    try:
-        export_usd = float(export_usd)
-        fx_avg = float(fx_avg)
-    except (TypeError, ValueError, OverflowError):
-        return result
+    # 2) 기준 분기: 대상 분기보다 앞서고, 실적이 있고, 3개월 자료·수출>0·환율>0인 분기
+    actuals = actuals_df.loc[actuals_df["revenue_krw"].notna(), ["quarter", "revenue_krw"]]
+    merged = quarterly_df.merge(actuals, on="quarter", how="inner")
+    base = merged[
+        (merged["quarter"] < target_quarter)
+        & (merged["months_available"] == MONTHS_PER_QUARTER)
+        & (merged["export_usd"] > 0)
+        & (merged["fx_avg"] > 0)
+    ].sort_values("quarter")
 
-    quarterly_by_quarter = {}
-    for row in quarterly_df.itertuples(index=False):
-        row_values = row._asdict()
-        quarter = row_values["quarter"]
-        quarter_index = _quarter_index(quarter)
-        if quarter_index is not None:
-            quarterly_by_quarter[quarter] = row_values
-
-    actuals_by_quarter = {}
-    for row in actuals_df.itertuples(index=False):
-        row_values = row._asdict()
-        quarter = row_values["quarter"]
-        quarter_index = _quarter_index(quarter)
-        if quarter_index is not None:
-            actuals_by_quarter[quarter] = row_values
-
-    candidate_quarters = []
-    for quarter in set(quarterly_by_quarter) & set(actuals_by_quarter):
-        quarter_index = _quarter_index(quarter)
-        if quarter_index is None or quarter_index >= target_index:
-            continue
-
-        quarterly_row = quarterly_by_quarter[quarter]
-        actuals_row = actuals_by_quarter[quarter]
-        revenue_krw = actuals_row["revenue_krw"]
-        historical_export = quarterly_row["export_usd"]
-        historical_fx = quarterly_row["fx_avg"]
-        historical_months = quarterly_row["months_available"]
-
-        if (
-            pd.isna(revenue_krw)
-            or pd.isna(historical_export)
-            or pd.isna(historical_fx)
-            or pd.isna(historical_months)
-        ):
-            continue
-
-        try:
-            historical_months = int(historical_months)
-            revenue_krw = float(revenue_krw)
-            historical_export = float(historical_export)
-            historical_fx = float(historical_fx)
-        except (TypeError, ValueError, OverflowError):
-            continue
-
-        if (
-            historical_months != 3
-            or historical_export <= 0
-        ):
-            continue
-
-        candidate_quarters.append(
-            (quarter_index, revenue_krw, historical_export, historical_fx)
-        )
-
-    if len(candidate_quarters) < RATIO_WINDOW:
+    if len(base) < RATIO_WINDOW:
         result["status"] = "insufficient_history"
         return result
 
-    candidate_quarters.sort(key=lambda item: item[0])
-    recent_quarters = candidate_quarters[-RATIO_WINDOW:]
+    # 3) 가장 최근 기준 분기 4개의 비율 → 중앙값·하한·상한
+    recent = base.tail(RATIO_WINDOW)
+    ratios = ((recent["revenue_krw"] / recent["fx_avg"]) / recent["export_usd"]).tolist()
 
-    ratios = [
-        (revenue_krw / historical_fx) / historical_export
-        for _, revenue_krw, historical_export, historical_fx in recent_quarters
-    ]
-
-    estimated_export_usd = export_usd * 3.0 / months_available
-    ratio_used = sum(ratios) / RATIO_WINDOW
+    estimated_export_usd = export_usd * MONTHS_PER_QUARTER / months_available
+    ratio_used = sum(ratios) / len(ratios)
     estimate_krw = estimated_export_usd * ratio_used * fx_avg
     lower_krw = estimated_export_usd * min(ratios) * fx_avg
     upper_krw = estimated_export_usd * max(ratios) * fx_avg
 
-    previous_quarter = _prev_quarter(target_quarter)
-    previous_revenue = None
-    if previous_quarter is not None:
-        previous_row = actuals_by_quarter.get(previous_quarter)
-        if previous_row is not None:
-            revenue_value = previous_row["revenue_krw"]
-            if not pd.isna(revenue_value):
-                try:
-                    previous_revenue = float(revenue_value)
-                except (TypeError, ValueError, OverflowError):
-                    previous_revenue = None
-
+    # 4) 직전 분기 실적이 있으면 전분기 대비 증감률
+    previous = actuals[actuals["quarter"] == _prev_quarter(target_quarter)]
     qoq_change_pct = None
-    if previous_revenue is not None and previous_revenue != 0:
+    if not previous.empty and previous["revenue_krw"].iloc[0] != 0:
+        previous_revenue = float(previous["revenue_krw"].iloc[0])
         qoq_change_pct = (estimate_krw / previous_revenue - 1.0) * 100.0
 
     return {
@@ -213,9 +140,7 @@ def estimate_revenue(
         "estimate_krw": float(estimate_krw),
         "lower_krw": float(lower_krw),
         "upper_krw": float(upper_krw),
-        "qoq_change_pct": (
-            float(qoq_change_pct) if qoq_change_pct is not None else None
-        ),
+        "qoq_change_pct": qoq_change_pct,
         "ratio_used": float(ratio_used),
         "months_available": months_available,
         "status": "ok",
