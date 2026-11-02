@@ -103,10 +103,10 @@ def estimate_revenue(
     except (TypeError, ValueError, OverflowError):
         return result
 
-    result["months_available"] = months_available
-
     if months_available <= 0:
         return result
+
+    result["months_available"] = months_available
 
     export_usd = target_row["export_usd"]
     fx_avg = target_row["fx_avg"]
