@@ -85,25 +85,7 @@ def estimate_revenue(
     if target_index is None:
         return result
 
-    required_quarterly_columns = {
-        "quarter",
-        "export_usd",
-        "months_available",
-        "fx_avg",
-    }
-    required_actuals_columns = {"quarter", "revenue_krw"}
 
-    if (
-        not isinstance(quarterly_df, pd.DataFrame)
-        or not required_quarterly_columns.issubset(quarterly_df.columns)
-    ):
-        return result
-
-    if (
-        not isinstance(actuals_df, pd.DataFrame)
-        or not required_actuals_columns.issubset(actuals_df.columns)
-    ):
-        return result
 
     target_rows = quarterly_df[
         quarterly_df["quarter"] == target_quarter
