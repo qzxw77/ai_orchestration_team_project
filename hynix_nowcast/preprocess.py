@@ -47,10 +47,10 @@ def aggregate_quarterly(
     Raises:
         ValueError: ``lag_months``가 0보다 작은 경우.
     """
-    if exports_df.empty:
-        return _empty_result()
     if lag_months < 0:
         raise ValueError("lag_months는 0 이상이어야 합니다")
+    if exports_df.empty:
+        return _empty_result()
 
     exports = exports_df.copy()
     target_regions = {"이천시", "청주시"}
