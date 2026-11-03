@@ -224,20 +224,40 @@ A04 예외: actuals의 2025Q1 revenue_krw NaN → "insufficient_history", 숫자
 ```
 - 생성 코드 위치: c681b9d (수정 전 원본)
 - 코드 리딩에서 발견한 결함:
-  1) 명세 밖 필수 열 검사 제거 (커밋 `74b0de4`)
-     - 수정: AI가 임의로 추가한 필수 열·DataFrame 타입 검사 블록(원본 88~106줄)을 삭제함. 이제 열이 없으면 `KeyError`가 나서 문제 위치가 바로 드러남
-     - 근거: 열 누락은 상류 함수의 버그인데 이를 status `no_data`로 반환해 "예측할 데이터 없음"으로 숨김. 열 보장은 `load_actuals`·`aggregate_quarterly`의 역할임. 구현 가이드의 "예외를 내지 않는다"는 자료 부족에만 해당하므로, 이 검사는 팀 규칙 "예외를 조용히 삼키지 않는다"에 어긋남
+  1) 명세 밖 필수 열 검사
+     - AI가 프롬프트에 없는 필수 열·DataFrame 타입 검사(원본 88~106줄)를 임의로 추가함
+     - 열 누락은 상류 함수의 버그인데, 이를 status `no_data`로 반환해 "예측할 데이터 없음"으로 숨김. 예: actuals 열 이름이 `revenue_krw` 대신 `revenue`로 들어와도 오류 없이 no_data가 됨
+     - 열 보장은 `load_actuals`·`aggregate_quarterly`의 역할임. 구현 가이드의 "예외를 내지 않는다"는 자료 부족에만 해당하므로, 이 검사는 팀 규칙 "예외를 조용히 삼키지 않는다"에 어긋남
 
-  2) 음수 month_available 출력 방지 (커밋 `2aa330c`)
-     - 근거: 기존 코드는 결과에 먼저 대입한 뒤 검사해서, 입력 -1이 그대로 출력됨. 이는 출력 명세(0~3) 위반이고, forecasts.csv와 화면의 "반영된 개월 수"까지 전달됨. 0·3 입력으로는 드러나지 않아 기존 테스트가 놓쳤고, 음수를 넣어 한 줄씩 따라가며 발견함
+  2) 음수 months_available 출력
+     - 기존 코드는 결과에 먼저 대입한 뒤 검사해서, 입력 -1이 그대로 출력됨(원본 124~127줄)
+     - 출력 명세(0~3) 위반이고, forecasts.csv와 화면의 "반영된 개월 수"까지 전달됨
+     - 0·3 입력으로는 드러나지 않아 기존 테스트(A01 등)가 놓쳤고, 음수를 넣어 한 줄씩 따라가며 발견함
 
-  3) estimate_revenue 기준 분기 선택을 pandas 필터로 단순화 (커밋 `e382473`)
-     - 수정: 3단계 루프(itertuples → dict → set 교집합 → for, 약 60줄)를 `merge` + 조건 마스크(대상 분기 이전, months_available == 3, export_usd > 0, fx_avg > 0) + `sort_values().tail(4)`로 바꿈. 불필요한 try/except 5곳 제거, 평균은 `len(ratios)`로 계산, `MONTHS_PER_QUARTER = 3` 상수 추가
-     - 근거: 코드가 지나치게 복잡해 설명하기 어려움. 중복 try/except는 앞 단계 버그를 조용히 no_data·제외로 바꿀 수 있음. `fx_avg`가 0이면 ZeroDivisionError가 날 수 있었음. 또 상수 `RATIO_WINDOW`로 나누면 기준 분기가 4개 미만일 때 평균이 틀어짐
-- 수정 내역: 
-    74b0de4(수정1), 2aa330c(수정2), e382473(수정3)
-- 테스트 결과: pytest 9 passed
+  3) 기준 분기 선택 코드의 과도한 복잡성
+     - itertuples → dict → set 교집합 → for의 3단계 루프(약 60줄)로 기준 분기를 골라 설명하기 어려움(원본 119~227줄)
+     - 이미 숫자인 값을 다시 변환하는 try/except 5곳이 앞 단계 버그를 조용히 no_data·제외로 바꿀 수 있음
+     - 기준 분기에서 `fx_avg`가 0인 경우를 거르지 않아 ZeroDivisionError가 날 수 있음
+     - 비율 평균을 실제 개수 대신 상수 `RATIO_WINDOW`로 나눔, 매직 넘버 `3` 사용
 
+- 수정 내역:
+  - `74b0de4` (수정1): 필수 열·타입 검사 블록(원본 88~106줄) 삭제. 이제 열이 없으면 `KeyError: '<열 이름>'`가 발생해 문제 위치가 바로 드러남
+  - `2aa330c` (수정2): `months_available <= 0` 검사를 결과 대입보다 앞으로 옮김. 0 이하 입력은 대입 전에 반환되어 초깃값 0이 출력되고, 1~3일 때만 결과에 대입됨 (입력 -1 → 수정 전 출력 -1, 수정 후 출력 0)
+  - `e382473` (수정3): 기준 분기 선택을 `merge` + 조건 마스크(대상 분기 이전, months_available == 3, export_usd > 0, fx_avg > 0) + `sort_values().tail(4)`로 단순화. 불필요한 try/except 5곳 제거, 평균은 `len(ratios)`로 계산, `MONTHS_PER_QUARTER = 3` 상수 추가
+
+- 테스트 결과: pytest 9 passed (정상 2 · 경계 4 · 예외 3)
+
+  | ID | 범주 | 테스트 함수 | 테스트 내용 | 확인한 결과 |
+  | --- | --- | --- | --- | --- |
+  | T07 | 정상 | test_t07_full_quarter | 공통 입력 F, 대상 분기 2026Q1 (3개월 모두 있음) | status "ok", 중앙값 26.1조 / 하한 24.36조 / 상한 27.84조, ratio_used 1.5, qoq ≈ 16.52% |
+  | T08 | 정상 | test_t08_partial_months_scaled | 2026Q1만 2개월치(80억 달러, months_available 2) | 3개월분 120억 달러로 환산되어 금액이 T07과 같음, months_available 2 |
+  | T09 | 경계 | test_t09_insufficient_history | actuals의 2025Q1 삭제 → 기준 분기 3개 | status "insufficient_history", 숫자 값 5개 모두 None |
+  | T10 | 경계 | test_t10_ignores_future_actuals | actuals에 대상 분기(2026Q1) 실적 30.0조 추가 | 결과가 T07과 완전히 같음 (미래 실적을 읽지 않음) |
+  | T11 | 예외 | test_t11_no_target_row | 대상 분기 2026Q2 (quarterly에 행 없음) | status "no_data", 숫자 값 모두 None, months_available 0, 예외 없음 |
+  | A01 | 경계 | test_a01_zero_months_available | 2026Q1을 수출 0, months_available 0으로 변경 | status "no_data", 숫자 값 모두 None, months_available 0 |
+  | A02 | 예외 | test_a02_target_fx_missing | 2026Q1 fx_avg를 NaN으로 변경 | status "no_data", 숫자 값 모두 None, months_available 3 |
+  | A03 | 경계 | test_a03_no_prev_quarter_actual | 2024Q4 추가, 직전 분기(2025Q4) 실적 삭제 | 기준 분기 2024Q4~2025Q3로 계산 (ratio_used 1.475, 중앙값 25.665조), qoq_change_pct만 None |
+  | A04 | 예외 | test_a04_revenue_nan_not_counted | actuals의 2025Q1 revenue_krw를 NaN으로 변경 | 결측 실적은 기준 분기에서 빠짐 → status "insufficient_history" |
 
 ---
 
