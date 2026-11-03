@@ -120,7 +120,40 @@
 ---
 
 ## 이다현
+[모듈] compare_guidance (2026-11-03, 작성자: 이다현)
+- 사용 도구: Gemini, GitHub Copilot Chat
+- 
+- 프롬프트:
+- 당신은 파이썬 데이터 분석 코드 작성을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 분석 모듈(forecaster.py, 숫자 계산 전담)에 들어갈 함수를 구현해 주세요. 이 함수는 추정 매출의 전분기 대비 방향이 컨콜 가이던스가 가리키는 방향과 같은지 판정합니다.
+- [함수 시그니처, 변경 금지] def compare_guidance(forecast: dict, guidance: dict) -> dict:
+- [입력 명세] forecast: estimate_revenue 반환 dict (키: status, qoq_change_pct 등) / guidance: extract_guidance 반환 dict (키: status, price_outlook, dram_bit_growth_pct 등)
+- [출력 명세] 키가 정확히 3개인 dict {"status": "일치"|"불일치"|"판단불가", "forecast_direction": "상승"|"보합"|"하락"|None, "guidance_direction": "상승"|"하락"|None}
+- [계산 정의]
+  -추정치 방향: forecast status가 "ok"일 때, qoq_change_pct > 2 이면 "상승", < -2 이면 "하락", 그 사이(±2 포함)면 "보합"
+  -가이던스 방향: guidance status가 "ok"일 때, price_outlook이 "상승"이고 dram_bit_growth_pct가 0 이상(또는 None)이면 "상승". price_outlook이 "하락"이고dram_bit_growth_pct가 0 이하(또는 None)면 "하락". 그 외는 None
+  -판정: 둘 중 하나라도 방향이 None이거나 추정치가 "보합"이면 "판단불가". 두 방향이 일치하면 "일치", 아니면 "불일치"
+- [예외, 경계 방침] 어떤 경우에도 예외를 발생시키지 않는다. 입력이 누락되거나 비정상 값이 들어오면 "판단불가"로 반환한다.
+- [제약 조건]
+  - 방향 판정 경계값(2.0%)은 파일 맨 위 상수로 둔다 (DIRECTION_BAND_PCT = 2.0).
+  - 입력 DataFrame/dict를 직접 수정하지 않고 새 dict를 반환한다.
+  - 타입 힌트와 한국어 docstring 필수 작성. Raises는 없음.
+- [통과해야 할 테스트] 직접 작성한 test_forecaster.py의 16개 파라미터 테스트 및 불변성/타입 방어 테스트 통과 필요.
+- 생성 코드 위치: fb1612286abbf274ddf843b3928e57676768bc8c
+- 코드 리딩에서 발견한 결함 (AI와의 설계 논의 과정 중 발견):
+  1. 숫자가 아닌 불리언(True/False)이나 문자열이 들어올 경우 `q > 2` 등 비교 연산에서 `TypeError` 발생 가능성 존재.
+  2. 값에 결측치(`NaN`)가 들어올 경우 크기 비교가 항상 `False`가 되어 "보합" 등 엉뚱한 값으로 오판정될 위험 존재.
+  3. `forecast["status"]`와 같이 직접 접근할 경우 필수 키가 없는 비정상 입력 시 `KeyError` 발생 위험 존재 (어떤 경우에도 예외가 발생하면 안 된다는 규칙 위반).
 
+| 번호 | 원본 방식 | 수정 코드 | 근거와 이유 |
+| :--- | :--- | :--- | :--- |
+| 1 | `forecast["status"]` 방식의 직접 접근 | `forecast.get("status") == "ok"` 방식으로 변경 | 딕셔너리에 키가 누락된 비정상 입력이 들어와도 `KeyError` 예외가 발생하지 않고 안전하게 처리하여 "판단불가"로 넘기기 위함. |
+| 2 | `q > DIRECTION_BAND_PCT` 단순 비교 | `_is_valid_number(q)` 헬퍼 함수를 추가하여 검증 후 비교 | `NaN`이나 무한대, `True/False` 같은 비정상 타입이 들어와서 프로그램이 터지거나 오판정(보합)되는 것을 막기 위한 방어 로직. |
+| 3 | `d >= 0` 단순 비교 | `d is None or (_is_valid_number(d) and d >= 0)` | 출하량 증감률(d) 값이 없어도 예외가 터지지 않게 하고, 확실히 유효한 숫자일 때만 상승/하락 조건에 반영하기 위함. |
+
+- 테스트 결과: pytest 18 passed
+- 비고:
+  1. 구현 가이드의 "어떤 경우에도 예외를 내지 않는다"는 규칙을 준수하기 위해 `try-except`로 전체를 덮는 대신, `get()`과 `_is_valid_number()`를 활용해 타입 에러 자체를 원천 차단하는 방식으로 구현함.
+  2. 추후 팀 통합 과정에서 방향 판정 경계값이 변경될 것을 대비해 DIRECTION_BAND_PCT = 2.0을 전역 상수로 분리하여 유지보수성을 높임.
 
 ---
 
