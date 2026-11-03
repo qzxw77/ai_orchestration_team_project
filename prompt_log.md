@@ -115,6 +115,253 @@
 ---
 
 ## 신해성
+[preprocess] aggregate_quarterly (2026-11-03, 작성자: 신해성)
+
+- 사용 도구: GitHub Copilot, GPAI, pytest
+
+### ① 논리 설계
+
+- 구현 대상: `hynix_nowcast/preprocess.py`의 `aggregate_quarterly`
+- 목적: 월별 지역 수출 자료와 일별 환율 자료를 분기별로 집계한다.
+
+- 함수 시그니처:
+
+```python
+def aggregate_quarterly(
+    exports_df: pd.DataFrame,
+    fx_df: pd.DataFrame,
+    lag_months: int = 0
+) -> pd.DataFrame:
+```
+
+- 입력:
+  - `exports_df`: `ym`, `region`, `hs_code`, `export_usd`, `collected_at` 열을 포함하는 월별 수출 표.
+  - `fx_df`: `date`, `usdkrw` 열을 포함하는 일별 환율 표.
+  - `lag_months`: 수출 월에 적용할 개월 단위 시차.
+
+- 출력:
+  - `quarter`: 분기 문자열.
+  - `export_usd`: 분기별 수출액 합계.
+  - `months_available`: 집계에 포함된 서로 다른 월 수.
+  - `fx_avg`: 분기별 환율 관측값의 산술평균.
+
+- 처리 흐름:
+  1. 음수 `lag_months`이면 `ValueError`를 발생시킨다.
+  2. 빈 수출 표이면 정해진 열을 갖는 빈 결과를 반환한다.
+  3. 이천시와 청주시 자료만 선택한다.
+  4. 두 지역이 모두 존재하는 달만 집계 대상으로 사용한다.
+  5. 수출 월에 `lag_months`를 적용한 뒤 분기를 구한다.
+  6. 분기별 수출액 합계와 포함 월 수를 계산한다.
+  7. 환율에는 시차를 적용하지 않고 분기별 평균을 계산한다.
+  8. 수출 분기를 기준으로 환율을 결합한다.
+  9. 해당 분기에 환율 자료가 없으면 `NaN`을 유지한다.
+
+- 비고:
+  - 위 내용은 검토한 코드와 제공 테스트를 바탕으로 정리한 설계 요약이다.
+  - 최초 논리 설계서에 별도 요구사항이 있다면 대조하여 보완한다.
+
+### ② 정밀 프롬프트 작성
+
+- 프롬프트:
+
+```text
+[모듈] aggregate_quarterly (2026-11-03, 작성자: 신해성)
+
+사용 도구: GitHub Copilot Chat
+
+프롬프트:
+당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 전처리 모듈(preprocess.py)에 들어갈 분기 집계 함수를 구현해 주세요.
+
+[함수 시그니처, 변경 금지]
+def aggregate_quarterly(exports_df: pd.DataFrame, fx_df: pd.DataFrame, lag_months: int = 0) -> pd.DataFrame:
+
+[입력 명세]
+exports_df: 월별 수출 표. (열: ym "YYYY-MM", region "이천시" 또는 "청주시", hs_code "854232", export_usd float, collected_at "YYYY-MM-DD")
+fx_df: 일별 환율 표. (열: date "YYYY-MM-DD", usdkrw float)
+lag_months: 수출액을 몇 개월 뒤 분기의 실적으로 반영할지 결정하는 시차 (기본값 0)
+
+[출력 명세]
+반환 열은 정확히 4개, 이 순서대로: quarter(str, "YYYYQn"), export_usd(float, 분기 합계), months_available(int, 수출 자료가 있는 달 수, 1~3), fx_avg(float, 분기 평균 환율)
+
+[세부 구현 및 처리 규칙]
+예외 및 경계 처리: exports_df가 비어 있으면 반환 열 4개를 가진 빈 표를 즉시 반환한다. lag_months < 0 인 경우 ValueError("lag_months는 0 이상이어야 합니다")를 발생시킨다.
+데이터 불변성: 입력된 DataFrame(exports_df, fx_df)을 직접 수정하지 않고 복사본이나 집계 연산을 통해 새로운 객체를 생성한다.
+수출 집계 (지역 교집합 필터링): exports_df를 ym 단위로 그룹화할 때, region 열에 "이천시"와 "청주시"가 모두 존재하는 달만 남긴다. 한 지역만 있는 달은 합산하지 않고 버린다. 조건에 맞는 월에 한해 export_usd를 합산한다.
+분기 환산과 시차(Lag) 적용: 파일 내부에 밑줄로 시작하는 보조 함수(예: _get_shifted_quarter)를 만들어 구현한다. "YYYY-MM" 문자열의 월(month)에 lag_months를 더할 때 연도가 넘어가는 경우를 안전하게 처리한 뒤, 귀속 월이 속한 분기("YYYYQn") 문자열을 반환한다. 해당 분기 단위로 수출액을 다시 합산하고, 분기 내 포함된 월의 개수를 months_available(1~3) 열에 기록한다.
+환율 집계: fx_df의 date("YYYY-MM-DD")를 분기("YYYYQn")로 변환하여 분기별 usdkrw의 평균(fx_avg)을 구한다. 환율에는 시차(lag_months)를 적용하지 않는다.
+병합 (Merge): 수출이 존재하는 분기를 기준으로 환율 집계 결과를 병합(Left Merge)한다. 수출 자료가 하나도 없는 분기는 결과 행을 만들지 않는다. 환율 자료가 없는 분기의 fx_avg는 결측치(NaN/None)로 유지하며, 빠진 데이터를 0으로 채우지 않는다.
+
+[제약 조건]
+Python 3.10 이상, 파이썬 표준 라이브러리와 pandas만 사용 (numpy 등 다른 라이브러리 import 금지).
+타입 힌트와 한국어 docstring(설명, Args, Returns, Raises) 필수.
+결과 표의 열을 [quarter, export_usd, months_available, fx_avg] 순서로 맞추고, quarter 오름차순 정렬 후 인덱스를 0부터 다시 매긴다 (reset_index(drop=True)).
+[통과해야 할 테스트]
+
+정상 통합: 2026년 1~3월 두 지역 수출 데이터 모두 존재(매달 합계 100) -> 2026Q1에 export_usd 300, months_available 3 반환.
+lag_months 적용: 2025-12월 두 지역 수출 데이터 존재, lag_months=1 -> 2026Q1 실적으로 집계.
+경계 - 한 지역만 있는 달: 2026-04에 이천시 데이터만 존재 -> 2026Q2 집계에서 4월 데이터는 제외됨(months_available 반영 안 됨).
+예외 - 빈 표: exports_df가 빈 표이면 4개 열을 가진 빈 표 반환.
+```
+
+- 비고:
+  - 실제 프롬프트 원문을 보존한다.
+  - 사후에 정리한 설명을 최초 프롬프트인 것처럼 기록하지 않는다.
+
+### ③ AI 코드 생성
+
+- 생성 도구: GitHub Copilot
+- 생성 코드 파일: `hynix_nowcast/preprocess.py`
+- 공개 함수: `aggregate_quarterly`
+- 내부 보조 함수:
+  - `_get_shifted_quarter`
+  - `_empty_result`
+
+- 생성 코드 위치: 5acdc8dc4bd8f216cc72029899b892d424a8e590
+
+- 생성된 코드를 그대로 최종 결과로 확정하지 않고, 코드 리딩과 테스트를 진행했다.
+
+### ④ 코드 리딩·검증
+
+- 검토 자료:
+  - 원본 `preprocess.py`: 94줄.
+  - 제공된 `test_preprocess.py`: 테스트 3개.
+
+- 점검 내용:
+  - 함수 문서 및 제공 테스트와 구현의 일치 여부.
+  - 입력값 검증과 조기 반환의 실행 순서.
+  - 두 지역이 모두 있는 달만 집계하는지 여부.
+  - 수출 월 시차 적용과 분기 집계 방식.
+  - 입력 DataFrame 직접 수정 여부.
+  - 광범위한 예외 처리 등 위험 관용구.
+
+#### 코드 리딩에서 발견한 결함
+
+1. 빈 입력일 때 음수 `lag_months` 검증이 생략됨.
+
+   원본 50~53줄은 `exports_df.empty`를 먼저 검사하여 빈 결과를 반환한다.
+   따라서 빈 수출 표와 `lag_months=-1`을 함께 전달하면
+   `ValueError`가 발생하지 않는다.
+
+   함수 docstring 47~48줄은 음수 시차에 `ValueError`를 명시하고 있으며,
+   제공된 `test_empty_and_negative_lag`도 빈 표와 음수 시차를 함께
+   전달하여 `ValueError` 발생을 요구한다.
+
+   따라서 입력값 검증이 조기 반환 때문에 생략되는 결함으로 판정했다.
+
+#### 수정 내역
+
+- 수정 코드 위치: 1798f34ba0fcb98ded10e4a9b08baede20e1e70d
+
+| 번호 | 원본 줄 | 원래 코드 | 수정 | 근거와 이유 |
+|---|---|---|---|---|
+| 1 | 50~53 | `exports_df.empty`이면 반환한 다음 `lag_months < 0` 검사 | 음수 시차 검사를 먼저 실행하고 이후 빈 입력 반환 | 빈 표와 음수 시차가 함께 들어오면 검증이 생략됨. 함수 docstring과 `test_empty_and_negative_lag`의 예외 처리 조건을 만족하도록 순서를 변경함. |
+
+- 수정 전:
+
+```python
+if exports_df.empty:
+    return _empty_result()
+
+if lag_months < 0:
+    raise ValueError("lag_months는 0 이상이어야 합니다")
+```
+
+- 수정 후:
+
+```python
+if lag_months < 0:
+    raise ValueError("lag_months는 0 이상이어야 합니다")
+
+if exports_df.empty:
+    return _empty_result()
+```
+
+#### 구간별 리딩 기록
+
+| 원본 줄 | 점검 대상 | 결과 |
+|---|---|---|
+| 1~3 | 모듈 설명 및 import | pandas 사용 확인 |
+| 6~17 | 월 시차 및 분기 변환 | 월에 시차를 적용한 뒤 분기를 구함 |
+| 20~29 | 빈 결과 생성 | 반환 열 순서와 dtype 명시 |
+| 32~49 | 공개 함수 문서 | 입력, 출력, 음수 시차 예외 설명 확인 |
+| 50~53 | 입력 검증 및 조기 반환 | 검증 순서 결함 발견 및 수정 |
+| 55~63 | 지역 선택 및 완전한 달 판정 | 복사본 사용. 실제 고유 지역 수로 두 지역 존재 여부 확인 |
+| 65~70 | 유효 월 부재 및 시차 적용 | 빈 결과 처리 및 월 단위 시차 적용 확인 |
+| 71~78 | 분기별 수출 집계 | 수출액 합계와 고유 월 수 계산 확인 |
+| 80~89 | 분기별 환율 집계 | 복사본 사용. 환율에는 시차를 적용하지 않음 |
+| 91~94 | 결합 및 결과 정리 | 수출 기준 left join, 열 순서 및 인덱스 초기화 확인 |
+
+#### 위험 관용구 점검
+
+- 함수 전체를 감싸는 광범위한 `try/except`: 없음.
+- 입력 DataFrame 직접 수정: 없음. 복사본에서 작업함.
+- 파일 읽기·쓰기: 없음.
+- 네트워크 접근: 없음.
+- `print` 사용: 없음.
+
+#### 명세 확인이 필요한 사항
+
+아래 항목은 최초 프롬프트 원문을 확인하지 못했으므로
+확정 결함으로 기록하지 않았다.
+
+- 동일 월·지역의 중복 행을 모두 합산해도 되는지.
+- `hs_code`를 함수에서 필터링해야 하는지, 입력에서 이미 보장하는지.
+- 결측 수출액의 처리 정책.
+- 잘못된 날짜, 필수 열 누락, 잘못된 시차 타입의 처리 정책.
+- 환율 자료의 중복 날짜 허용 여부.
+- 보조 함수에도 `Args`, `Returns`, `Raises` 전체가 필수인지.
+
+### ⑤ 테스트
+
+- 테스트 파일: `hynix_nowcast/test_preprocess.py`
+- 제공된 테스트는 수정하지 않았다.
+
+- 실행 위치:
+
+```text
+C:\Users\s2h02\my_project
+```
+
+- 실행 명령:
+
+```powershell
+python -m pytest -v .\hynix_nowcast\test_preprocess.py
+```
+
+- 실행 환경:
+  - Windows
+  - Python 3.13.15
+  - pytest 9.2.0
+
+- 실제 실행 결과:
+
+```text
+collected 3 items
+
+hynix_nowcast/test_preprocess.py::test_aggregate_normal PASSED
+hynix_nowcast/test_preprocess.py::test_lag_months_and_missing_region PASSED
+hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED
+
+3 passed in 1.08s
+```
+
+| 테스트 | 확인 내용 | 결과 |
+|---|---|---|
+| `test_aggregate_normal` | 정상 분기 집계, 수출액 합계, 포함 월 수 | PASSED |
+| `test_lag_months_and_missing_region` | 한 지역 누락 월 제외 및 시차 적용 | PASSED |
+| `test_empty_and_negative_lag` | 빈 결과와 열 순서, 음수 시차 ValueError 발생 | PASSED |
+
+- 테스트 결과: **pytest 3 passed in 1.08s**
+
+- 비고:
+  1. 최초 실행에서는 테스트 파일 경로를 잘못 지정하여
+     `file or directory not found`가 발생했다.
+     실제 파일 위치를 확인하고 실행 경로를 수정했다.
+     이는 코드 테스트 실패가 아닌 파일 경로 문제였다.
+  2. 제공된 테스트 3개가 통과한 것이며,
+     모든 입력 및 경계 조건에서 결함이 없음을 보장하는 것은 아니다.
+  3. 정상 테스트에는 `fx_avg` 값을 직접 검증하는 assertion이 없으므로,
+     이번 통과 결과만으로 환율 계산까지 충분히 검증했다고 볼 수는 없다.
 
 
 ---
