@@ -176,6 +176,6 @@ def upsert_records(store_df: pd.DataFrame, new_df: pd.DataFrame, key_cols: list[
 ```
 - 생성 코드 위치: 커밋 ed0d94c (Copilot 제안을 반영한 upsert_records 함수, 검토·수정 전 상태).
 - 코드 리딩에서 발견한 결함: 구현 동작은 설계 계약과 일치. 새 테스트 3건이 설계에 없는 특정 ValueError 메시지 `키 열 누락:`까지 요구해 pytest가 27 passed, 3 failed였음.
-- 수정 내용: `tests/test_upsert_records.py`의 메시지 정규식 검사 두 곳을 예외 타입 검사로 변경. 함수 구현은 수정하지 않음.
+- 수정 내용: `tests/test_upsert_records.py`의 메시지 정규식 검사 두 곳을 예외 타입 검사로 변경. 함수 구현은 수정하지 않음. 검토·테스트 기록 커밋 0bb38cc.
 - 최종 테스트 결과: 기존 clean_exports 19건과 upsert_records 11건, pytest 30 passed. `조현모/pytest_result.txt`에 실행 결과 저장.
 - 비고: 빈 키 목록 오류, 열 없는 빈 표 허용, 표 내부 중복의 마지막 행 선택은 설계문서의 빈칸을 채운 경계 방침. 시그니처 변경 없음.
