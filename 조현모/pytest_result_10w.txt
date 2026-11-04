@@ -1,0 +1,43 @@
+2026-11-04 10주차 조현모 전처리 모듈 단위·경계 테스트
+
+============================= test session starts =============================
+platform win32 -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\chm32\anaconda3\python.exe
+rootdir: C:\chm26y\학교\26-2\AI오케\week9\ai_orchestration_team_project\조현모
+plugins: anyio-4.12.1
+collecting ... collected 33 items
+
+tests/test_preprocess.py::test_T01_normal_sort_and_ym_format PASSED      [  3%]
+tests/test_preprocess.py::test_T02_duplicate_key_keeps_latest_collected PASSED [  6%]
+tests/test_preprocess.py::test_T02b_duplicate_key_order_independent PASSED [  9%]
+tests/test_preprocess.py::test_T03_empty_input_returns_5_columns PASSED  [ 12%]
+tests/test_preprocess.py::test_T03b_empty_without_columns PASSED         [ 15%]
+tests/test_preprocess.py::test_T04_zero_kept_negative_removed PASSED     [ 18%]
+tests/test_preprocess.py::test_T05_dirty_rows_removed_without_error PASSED [ 21%]
+tests/test_preprocess.py::test_T06_missing_column_raises PASSED          [ 24%]
+tests/test_preprocess.py::test_X01_input_not_modified PASSED             [ 27%]
+tests/test_preprocess.py::test_X02_output_types PASSED                   [ 30%]
+tests/test_preprocess.py::test_X03_region_name_map PASSED                [ 33%]
+tests/test_preprocess.py::test_X04_ym_float_and_dot_formats PASSED       [ 36%]
+tests/test_preprocess.py::test_X05_ambiguous_ym_removed PASSED           [ 39%]
+tests/test_preprocess.py::test_X06_hs_code_string_kept PASSED            [ 42%]
+tests/test_preprocess.py::test_X07_blank_collected_at_is_oldest PASSED   [ 45%]
+tests/test_preprocess.py::test_X08_comma_and_inf_amounts PASSED          [ 48%]
+tests/test_preprocess.py::test_X09_missing_month_not_filled PASSED       [ 51%]
+tests/test_preprocess.py::test_X10_multiple_missing_columns_listed PASSED [ 54%]
+tests/test_preprocess.py::test_X11_all_rows_dirty_returns_empty_schema PASSED [ 57%]
+tests/test_preprocess_boundary.py::test_upsert_rejects_row_with_no_columns PASSED [ 60%]
+tests/test_preprocess_boundary.py::test_clean_exports_to_upsert_keeps_new_correction PASSED [ 63%]
+tests/test_preprocess_boundary.py::test_clean_exports_to_upsert_propagates_missing_column PASSED [ 66%]
+tests/test_upsert_records.py::test_new_row_replaces_old_record PASSED    [ 69%]
+tests/test_upsert_records.py::test_unmatched_old_and_new_rows_both_remain PASSED [ 72%]
+tests/test_upsert_records.py::test_empty_store_without_columns_accepts_new_rows PASSED [ 75%]
+tests/test_upsert_records.py::test_empty_new_without_columns_preserves_old_rows PASSED [ 78%]
+tests/test_upsert_records.py::test_duplicate_within_new_rows_keeps_last PASSED [ 81%]
+tests/test_upsert_records.py::test_duplicate_within_old_rows_keeps_last PASSED [ 84%]
+tests/test_upsert_records.py::test_missing_key_in_populated_input_raises[store] PASSED [ 87%]
+tests/test_upsert_records.py::test_missing_key_in_populated_input_raises[new] PASSED [ 90%]
+tests/test_upsert_records.py::test_empty_key_list_raises PASSED          [ 93%]
+tests/test_upsert_records.py::test_composite_key_only_replaces_matching_combination PASSED [ 96%]
+tests/test_upsert_records.py::test_inputs_are_unchanged PASSED           [100%]
+
+============================= 33 passed in 2.63s ==============================

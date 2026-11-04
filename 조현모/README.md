@@ -49,3 +49,14 @@ python -m pytest -v | Tee-Object pytest_result.txt
 - 과정 기록: 저장소 최상위 `prompt_log.md`의 조현모 섹션
 
 초기 작업본은 Codex로 준비했고, 이후 Copilot이 작성한 upsert_records 함수를 커밋 ed0d94c에 보존했습니다. 테스트는 명세에 없는 오류 메시지 조건을 제거한 뒤 30건 통과했습니다. 실제 Copilot 프롬프트 원문은 공용 prompt_log.md에 기록했습니다.
+
+## 10주차 본인 담당 데이터 계약
+
+| 경계 | 함수 | 입력 | 반환 | 실패 처리 |
+| --- | --- | --- | --- | --- |
+| 원자료 → 정제 | `clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame` | 관세청 원자료 표. 필수 열은 표준 열 이름 변환 후 검사 | 정확히 `ym`, `region`, `hs_code`, `export_usd`, `collected_at` 순서의 DataFrame. `ym`은 YYYY-MM, 금액은 0 이상 float | 0행은 열 5개인 빈 표, 필수 열 누락은 ValueError, 잘못된 행은 제거 |
+| 정제·기존 저장 → 갱신 | `upsert_records(store_df: pd.DataFrame, new_df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame` | 두 표는 같은 업무 스키마. 수출 키는 `ym+region+hs_code`; 환율 키는 `date`; 예측 이력 키는 `quarter+as_of` | 키당 마지막 새 행을 남긴 DataFrame, 행 번호 0부터 재설정 | 키 목록이 비거나 행이 있는 표에 키 열이 없으면 ValueError. 행 0개·열 0개 표는 허용 |
+
+본인 함수의 경계 테스트는 `tests/test_preprocess_boundary.py`의 정상·예외 경로로 확인한다. 팀 전체 `pipeline.py`의 통합 테스트와 공통 `docs/schema.md`는 팀 통합 담당자가 다른 모듈 계약까지 합쳐야 한다. 2차시 교차 리뷰 코멘트는 현재 전달받은 것이 없어 반영 내역을 만들어 적지 않았다.
+
+10주차 AI 통제 기록은 저장소 최상위 `ai_log/chohyeonmo_*.md` 두 파일에 있다. 본인 폴더 10주차 검증 로그는 `pytest_result_10w.txt`다.
