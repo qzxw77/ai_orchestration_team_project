@@ -1,28 +1,40 @@
-﻿============================= test session starts =============================
+2026-11-04 Copilot 생성본 검토 후 통합 테스트
+
+============================= test session starts =============================
 platform win32 -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\chm32\anaconda3\python.exe
-cachedir: .pytest_cache
 rootdir: C:\chm26y\학교\26-2\AI오케\week9\ai_orchestration_team_project\조현모
 plugins: anyio-4.12.1
-collecting ... collected 19 items
+collecting ... collected 30 items
 
-tests/test_preprocess.py::test_T01_normal_sort_and_ym_format PASSED      [  5%]
-tests/test_preprocess.py::test_T02_duplicate_key_keeps_latest_collected PASSED [ 10%]
-tests/test_preprocess.py::test_T02b_duplicate_key_order_independent PASSED [ 15%]
-tests/test_preprocess.py::test_T03_empty_input_returns_5_columns PASSED  [ 21%]
-tests/test_preprocess.py::test_T03b_empty_without_columns PASSED         [ 26%]
-tests/test_preprocess.py::test_T04_zero_kept_negative_removed PASSED     [ 31%]
-tests/test_preprocess.py::test_T05_dirty_rows_removed_without_error PASSED [ 36%]
-tests/test_preprocess.py::test_T06_missing_column_raises PASSED          [ 42%]
-tests/test_preprocess.py::test_X01_input_not_modified PASSED             [ 47%]
-tests/test_preprocess.py::test_X02_output_types PASSED                   [ 52%]
-tests/test_preprocess.py::test_X03_region_name_map PASSED                [ 57%]
-tests/test_preprocess.py::test_X04_ym_float_and_dot_formats PASSED       [ 63%]
-tests/test_preprocess.py::test_X05_ambiguous_ym_removed PASSED           [ 68%]
-tests/test_preprocess.py::test_X06_hs_code_string_kept PASSED            [ 73%]
-tests/test_preprocess.py::test_X07_blank_collected_at_is_oldest PASSED   [ 78%]
-tests/test_preprocess.py::test_X08_comma_and_inf_amounts PASSED          [ 84%]
-tests/test_preprocess.py::test_X09_missing_month_not_filled PASSED       [ 89%]
-tests/test_preprocess.py::test_X10_multiple_missing_columns_listed PASSED [ 94%]
-tests/test_preprocess.py::test_X11_all_rows_dirty_returns_empty_schema PASSED [100%]
+tests/test_preprocess.py::test_T01_normal_sort_and_ym_format PASSED      [  3%]
+tests/test_preprocess.py::test_T02_duplicate_key_keeps_latest_collected PASSED [  6%]
+tests/test_preprocess.py::test_T02b_duplicate_key_order_independent PASSED [ 10%]
+tests/test_preprocess.py::test_T03_empty_input_returns_5_columns PASSED  [ 13%]
+tests/test_preprocess.py::test_T03b_empty_without_columns PASSED         [ 16%]
+tests/test_preprocess.py::test_T04_zero_kept_negative_removed PASSED     [ 20%]
+tests/test_preprocess.py::test_T05_dirty_rows_removed_without_error PASSED [ 23%]
+tests/test_preprocess.py::test_T06_missing_column_raises PASSED          [ 26%]
+tests/test_preprocess.py::test_X01_input_not_modified PASSED             [ 30%]
+tests/test_preprocess.py::test_X02_output_types PASSED                   [ 33%]
+tests/test_preprocess.py::test_X03_region_name_map PASSED                [ 36%]
+tests/test_preprocess.py::test_X04_ym_float_and_dot_formats PASSED       [ 40%]
+tests/test_preprocess.py::test_X05_ambiguous_ym_removed PASSED           [ 43%]
+tests/test_preprocess.py::test_X06_hs_code_string_kept PASSED            [ 46%]
+tests/test_preprocess.py::test_X07_blank_collected_at_is_oldest PASSED   [ 50%]
+tests/test_preprocess.py::test_X08_comma_and_inf_amounts PASSED          [ 53%]
+tests/test_preprocess.py::test_X09_missing_month_not_filled PASSED       [ 56%]
+tests/test_preprocess.py::test_X10_multiple_missing_columns_listed PASSED [ 60%]
+tests/test_preprocess.py::test_X11_all_rows_dirty_returns_empty_schema PASSED [ 63%]
+tests/test_upsert_records.py::test_new_row_replaces_old_record PASSED    [ 66%]
+tests/test_upsert_records.py::test_unmatched_old_and_new_rows_both_remain PASSED [ 70%]
+tests/test_upsert_records.py::test_empty_store_without_columns_accepts_new_rows PASSED [ 73%]
+tests/test_upsert_records.py::test_empty_new_without_columns_preserves_old_rows PASSED [ 76%]
+tests/test_upsert_records.py::test_duplicate_within_new_rows_keeps_last PASSED [ 80%]
+tests/test_upsert_records.py::test_duplicate_within_old_rows_keeps_last PASSED [ 83%]
+tests/test_upsert_records.py::test_missing_key_in_populated_input_raises[store] PASSED [ 86%]
+tests/test_upsert_records.py::test_missing_key_in_populated_input_raises[new] PASSED [ 90%]
+tests/test_upsert_records.py::test_empty_key_list_raises PASSED          [ 93%]
+tests/test_upsert_records.py::test_composite_key_only_replaces_matching_combination PASSED [ 96%]
+tests/test_upsert_records.py::test_inputs_are_unchanged PASSED           [100%]
 
-============================= 19 passed in 2.45s ==============================
+============================= 30 passed in 1.79s ==============================

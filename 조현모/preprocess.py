@@ -181,3 +181,37 @@ def clean_exports(raw_df: pd.DataFrame) -> pd.DataFrame:
         .sort_values(["ym", "region", "hs_code"], kind="stable")
         .reset_index(drop=True)
     )
+
+
+def upsert_records(store_df: pd.DataFrame, new_df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+    """기존 표와 새 표를 합쳐 키별 마지막 행을 반환한다.
+
+    Args:
+        store_df: 기존 저장 표. 열 없는 빈 표도 허용한다.
+        new_df: 새로 수집한 표. 열 없는 빈 표도 허용한다.
+        key_cols: 중복 판별에 사용할 키 열 이름 목록.
+
+    Returns:
+        각 키에 대해 한 행만 남긴 새 DataFrame. 같은 키가 있으면
+        새 표의 행이 우선하며, 입력 DataFrame은 변경하지 않는다.
+
+    Raises:
+        ValueError: key_cols가 비었거나, 행이 있는 표에서 키 열이 누락된 경우.
+    """
+    if not key_cols:
+        raise ValueError("key_cols는 비어 있을 수 없습니다.")
+
+    for name, frame in (("store_df", store_df), ("new_df", new_df)):
+        if not frame.empty:
+            missing = [column for column in key_cols if column not in frame.columns]
+            if missing:
+                raise ValueError(f"{name}에 키 열이 없습니다: {', '.join(missing)}")
+
+    combined = pd.concat([store_df, new_df], ignore_index=True)
+    if combined.empty:
+        return combined.copy()
+
+    return (
+        combined.drop_duplicates(subset=key_cols, keep="last")
+        .reset_index(drop=True)
+    )

@@ -662,3 +662,29 @@ T06 [예외] export_usd 열이 없는 표 → ValueError, 메시지에 "export_u
   - 테스트 X01~X11은 구현 가이드 1.2 '반드시 지킬 것'과 공통 제약을 검사하려고 추가함. 테스트 작성에 Claude(Cowork) 보조 사용
   - 담당자 재량으로 정한 것: YM_FORMATS 4종, REGION_NAME_MAP 2건, 천 단위 쉼표 제거, 무한대 = 결측, ALLOWED_HS_CODES 미적용
   - 팀 확인 필요: RAW_COLUMN_MAP 실제 값(관세청 API 명세 확정 후, 신해성), "2026-7"처럼 0이 빠진 월은 현재 제거됨
+
+### [preprocess] upsert_records (2026-11-04, 작성자: 조현모)
+- 사용 도구: Codex 작업본을 준비한 뒤 GitHub Copilot Chat에 코드 생성을 요청함. 첫 Copilot 응답은 기존 코드 설명 및 읽기 전용 안내였고, 두 번째 요청에서 함수 코드를 받아 preprocess.py에 반영함.
+- 프롬프트 원문: 첫 요청은 `조현모/upsert_prompt.txt` 내용을 전달함(기존 함수 확인·읽기 전용 안내로 종료). 두 번째 요청은 아래 원문을 전달해 코드 답변을 받음.
+
+```text
+기존 preprocess.py에 함수가 있는 것은 알고 있습니다. 기존 코드의 존재 여부를 설명하거나 테스트 통과를 추측하지 말고, 아래 명세에 따라 upsert_records 함수의 새로운 구현 코드를 채팅 답변에 전체 코드 블록으로 작성해 주세요. 파일 수정 권한은 필요하지 않습니다.
+함수 시그니처:
+def upsert_records(store_df: pd.DataFrame, new_df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+요구사항:
+- 기존 표와 새 표를 합치되 같은 키는 새 표의 행 전체로 교체
+- 각 표 내부에 중복 키가 있으면 마지막 행 유지
+- 열 없는 빈 표 허용
+- key_cols가 비었거나, 행이 있는 표에 키 열이 없으면 ValueError
+- 입력 DataFrame을 변경하지 않음
+- pandas 사용, 한국어 docstring과 타입 힌트 포함
+- clean_exports 코드는 작성하거나 변경하지 않음
+출력:
+1. upsert_records 함수의 실행 가능한 Python 코드 전체
+2. 빈 표·키 누락·중복 키를 어떻게 처리했는지 짧은 설명
+```
+- 생성 코드 위치: 커밋 ed0d94c (Copilot 제안을 반영한 upsert_records 함수, 검토·수정 전 상태).
+- 코드 리딩에서 발견한 결함: 구현 동작은 설계 계약과 일치. 새 테스트 3건이 설계에 없는 특정 ValueError 메시지 `키 열 누락:`까지 요구해 pytest가 27 passed, 3 failed였음.
+- 수정 내용: `tests/test_upsert_records.py`의 메시지 정규식 검사 두 곳을 예외 타입 검사로 변경. 함수 구현은 수정하지 않음. 검토·테스트 기록 커밋 0bb38cc.
+- 최종 테스트 결과: 기존 clean_exports 19건과 upsert_records 11건, pytest 30 passed. `조현모/pytest_result.txt`에 실행 결과 저장.
+- 비고: 빈 키 목록 오류, 열 없는 빈 표 허용, 표 내부 중복의 마지막 행 선택은 설계문서의 빈칸을 채운 경계 방침. 시그니처 변경 없음.
