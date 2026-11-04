@@ -202,13 +202,13 @@ def upsert_records(store_df: pd.DataFrame, new_df: pd.DataFrame, key_cols: list[
         raise ValueError("key_cols는 비어 있을 수 없습니다.")
 
     for name, frame in (("store_df", store_df), ("new_df", new_df)):
-        if not frame.empty:
+        if len(frame) > 0:
             missing = [column for column in key_cols if column not in frame.columns]
             if missing:
                 raise ValueError(f"{name}에 키 열이 없습니다: {', '.join(missing)}")
 
     combined = pd.concat([store_df, new_df], ignore_index=True)
-    if combined.empty:
+    if len(combined) == 0:
         return combined.copy()
 
     return (
