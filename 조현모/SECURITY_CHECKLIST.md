@@ -25,3 +25,10 @@ git check-ignore -v .env                 # .gitignore:N:.env 가 나오면 정�
 git ls-files | Select-String "\.env"     # 아무것도 안 나와야 정상
 git log -p -- 조현모/ | Select-String -Pattern "API_KEY|sk-"   # 아무것도 안 나와야 정상
 ```
+
+## 10주차 재점검 (2026-11-04)
+
+- S1~S4, S7~S10: 본인 담당 `clean_exports`·`upsert_records`, 테스트 3개와 `ai_log/chohyeonmo_*.md`를 재확인했다. 입력은 가상 값이며 API 호출·LLM 호출·키 출력이 없다. 앞 표의 표시를 그대로 적용한다.
+- S5: `.gitignore`의 `.env` 규칙을 `git check-ignore -v .env`로 확인했다. 현재 추적 파일 목록에 `.env`가 없다.
+- S6: `git log --all --name-only`로 모든 로컬 참조의 커밋 파일명을 확인했다. `.env` 또는 `.env.*` 커밋은 없고 `week05/.env.example`만 있다. 이 검사는 파일명 기준이며 비밀값 내용 전체를 보증하지 않는다.
+- 실제 API·LLM 연동과 팀 전체 저장소 보안 점검은 각 담당 모듈 통합 시 다시 수행해야 한다.
