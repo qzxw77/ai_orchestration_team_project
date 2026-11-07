@@ -1,5 +1,6 @@
 # [수정 1] 날짜 인자 검사에 ASCII 확인 추가: 전각 숫자("２０２６-01-31")가 형식 검사를 통과하던 문제
 # [수정 2] INFO-200(데이터 없음)일 때 돌려주는 빈 표의 열 타입을 정상 표와 같게(date 문자열, usdkrw float) 맞춤
+# [수정 3] list_total_count가 int일 때만 받던 명세 밖 검사를 숫자 문자열도 받도록 고침
 
 import os
 
@@ -113,13 +114,11 @@ def fetch_fx_rates(start_date: str, end_date: str) -> pd.DataFrame:
 
         total_count = statistic["list_total_count"]
         page_rows = statistic["row"]
-        if (
-            not isinstance(total_count, int)
-            or isinstance(total_count, bool)
-            or total_count < 0
-            or not isinstance(page_rows, list)
-        ):
+        # [수정 3] int 타입만 받던 검사를 숫자 문자열("1234")도 받도록 바꿈 (명세는 키가 있는지만 요구)
+        # str()로 바꿔 0 이상의 정수 표기인지 확인하므로 True, -1, "abc", 1.5는 여전히 응답 형식 오류
+        if not str(total_count).isdecimal() or not isinstance(page_rows, list):
             raise RuntimeError("ECOS API 호출 실패: 응답 형식 오류")
+        total_count = int(total_count)
 
         rows.extend(row for row in page_rows if isinstance(row, dict))
 
