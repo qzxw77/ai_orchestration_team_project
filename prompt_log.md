@@ -24,7 +24,7 @@
 
 ## 강민규
 
-[모듈] 함수명 (2026-11-01, 작성자: 강민규)
+[forecaster.py] detect_anomaly (2026-11-01, 작성자: 강민규)
 - 사용 도구: GitHub Copilot Chat, Claude
 - 프롬프트:  
     당신은 파이썬 데이터 분석 코드 작성을 돕는 어시스턴트입니다.
@@ -105,7 +105,139 @@
 - 테스트 결과: pytest 6 passed
 - 비고:  
   1) 결함 4는 프롬프트 27줄 "어떤 경우에도 예외를 발생시키지 않는다"를 Copilot이 그대로 따른 결과다. 그러나 리딩 체크리스트 4번(광범위한 except)에 해당하고 코드 오류가 "데이터 부족"으로 가려질 수 있어 수정했다. 원인은 프롬프트 문구에 있으므로 다음 사이클에서는 27줄을 "자료 문제(형식 오류, 빈 표, 빠진 달, 0 나누기, 표준편차 0)로는 예외를 내지 않고 기본값을 반환한다. 함수 전체를 try/except로 감싸지 않는다"로 고친다.
-  2) 수정 4 이후 숫자가 아닌 threshold처럼 호출하는 쪽이 잘못한 경우에는 TypeError가 난다. 의도한 동작이며 docstring Raises에 적었다
+  2) 수정 4 이후 숫자가 아닌 threshold처럼 호출하는 쪽이 잘못한 경우에는 TypeError가 난다. 의도한 동작이며 docstring Raises에 적었다.  
+
+[data_loader] fetch_fx_rates (2026-11-07, 작성자: 강민규)
+- 사용 도구: GitHub Copilot Chat, Claude  
+- 프롬프트:  
+  당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다.
+  SK하이닉스 분기 매출 나우캐스팅 시스템의 적재 모듈(data_loader.py, 외부 데이터 수집 전담)에 들어갈 함수 fetch_fx_rates 하나만 구현해 주세요.
+  이 함수는 한국은행 ECOS Open API에서 원/달러 매매기준율 일별 값을 받아 fx 표 형식으로 돌려줍니다.
+  돌려준 표는 upsert_records(키 ["date"])로 저장 표에 합쳐진 뒤, aggregate_quarterly에서 분기 평균 환율(fx_avg)로 쓰입니다.
+  #file:test_fetch_fx_rates.py 의 테스트를 모두 통과해야 합니다. 테스트 파일은 수정하지 마세요.
+
+  [함수 시그니처, 변경 금지]
+  import pandas as pd
+
+  def fetch_fx_rates(start_date: str, end_date: str) -> pd.DataFrame:
+
+  [입력 명세]
+  start_date, end_date: 조회 기간의 시작일과 끝일, "YYYY-MM-DD" 문자열 (예: "2021-01-01", "2026-11-07")
+  - 네 자리 연도, 두 자리 월, 두 자리 일이고 달력에 있는 날짜여야 하며 start_date <= end_date
+  API 키: 환경변수 ECOS_API_KEY (.env 파일에 저장, python-dotenv로 읽음)
+
+  [ECOS API 명세]
+  요청: GET, 인증키가 URL 경로 안에 들어간다
+    {ECOS_BASE_URL}/{API 키}/json/kr/{시작 번호}/{끝 번호}/{ECOS_STAT_CODE}/{ECOS_CYCLE}/{시작일 YYYYMMDD}/{끝일 YYYYMMDD}/{ECOS_ITEM_CODE}
+    예) https://ecos.bok.or.kr/api/StatisticSearch/<키>/json/kr/1/1000/731Y001/D/20260101/20260131/0000001
+  나눠 받기: 시작 번호, 끝 번호는 1부터 세는 행 번호다. 한 번에 ECOS_PAGE_SIZE행씩 요청한다
+    (1~ECOS_PAGE_SIZE, 그다음 ECOS_PAGE_SIZE+1~ECOS_PAGE_SIZE*2, ...).
+    이번 요청의 row가 0개이거나, 지금까지 모은 행 수가 list_total_count 이상이면 그만 요청한다.
+  성공 응답 (HTTP 200):
+    {"StatisticSearch": {"list_total_count": 5, "row": [{"TIME": "20260102", "DATA_VALUE": "1445.0", ...그 밖의 키}, ...]}}
+    list_total_count = 기간 전체 행 수, row = 이번 요청 범위의 행. row에서는 TIME과 DATA_VALUE만 쓴다.
+  결과 코드 응답 (HTTP 200이어도 올 수 있음):
+    {"RESULT": {"CODE": "INFO-200", "MESSAGE": "해당하는 데이터가 없습니다."}}
+    INFO-200만 "데이터 없음"이다. 그 밖의 코드(예: INFO-100 인증키 오류, ERROR-602 호출 제한)는 INFO로 시작해도 모두 실패다.
+
+  [출력 명세]
+  fx 표(DataFrame), 열은 정확히 2개, 이 순서: date, usdkrw
+  - date: "YYYY-MM-DD" 문자열 (datetime, Timestamp로 돌려주지 않음)
+  - usdkrw: float (1달러당 원, 0 초과)
+  - date 오름차순, date 중복 없음, 행 번호 0부터
+  - 0행이어도 열 2개짜리 빈 표를 돌려준다
+  예) date="2026-01-02", usdkrw=1445.0
+  변환 규칙
+  - date = TIME("YYYYMMDD")을 "YYYY-MM-DD" 문자열로 바꾼 값. 달력에 없는 날짜면 결측
+  - usdkrw = DATA_VALUE를 숫자로 바꾼 값. 빈 값, "-", null처럼 바꿀 수 없으면 결측
+  - date나 usdkrw가 결측이거나 usdkrw가 0 이하인 행은 제거한다
+  - 같은 date가 여러 번 오면 응답에서 나중에 나온 행만 남긴다
+  - 값이 없는 날(주말, 공휴일)을 앞 값이나 0으로 채우지 않는다. 분기 평균은 값이 있는 날만으로 계산한다
+
+  [예외, 경계 방침]
+  검사 순서: 날짜 인자 -> API 키 -> ECOS 요청. 앞 단계에서 실패하면 ECOS를 부르지 않는다.
+  - 날짜 인자가 "YYYY-MM-DD" 형식의 실제 날짜가 아니면 ValueError("날짜 형식 오류: <값>")
+  - start_date > end_date이면 ValueError("시작일이 끝일보다 늦습니다: <start_date> > <end_date>")
+  - ECOS_API_KEY가 없거나 공백뿐이면 RuntimeError("ECOS API 키가 없습니다")
+  - 연결 오류, 시간 초과, HTTP 오류(4xx, 5xx)는 RuntimeError("ECOS API 호출 실패: <원인>")
+    <원인>은 연결 오류와 시간 초과면 예외 클래스 이름(예: ConnectionError, Timeout), HTTP 오류면 "HTTP <상태 코드>"(예: HTTP 500)
+  - 응답이 JSON이 아니거나, StatisticSearch, list_total_count, row 중 하나라도 없으면 RuntimeError("ECOS API 호출 실패: 응답 형식 오류")
+  - RESULT 응답의 CODE가 INFO-200이면 예외 없이 요청을 멈추고 그때까지 모은 행으로 진행한다 (첫 요청이면 빈 표)
+  - RESULT 응답의 CODE가 INFO-200이 아니면 RuntimeError("ECOS API 호출 실패: \<CODE> \<MESSAGE>")
+  - 키 보호: requests 예외 문자열(str(e))에는 키가 들어간 요청 URL이 그대로 담긴다. 그래서
+    1) 오류 메시지에 URL, 키, str(e)를 넣지 않는다
+    2) RuntimeError는 raise ... from None으로 발생시켜 원래 예외가 traceback에 함께 찍히지 않게 한다
+  - try/except는 requests.get과 raise_for_status() 호출, json() 해석 부분에만 짧게 둔다. 함수 전체를 try/except로 감싸지 않는다.
+    except:, except Exception: 금지. 잡는 예외는 requests.RequestException(연결 오류, 시간 초과, HTTP 오류 포함)과 json()의 ValueError뿐이다
+  - 재시도하지 않는다. 실패하면 이 함수를 부른 main이 경고를 띄우고 저장된 데이터로 진행한다
+
+  [제약 조건, 프로젝트 공통]
+  - Python 3.10 이상. 표준 라이브러리, pandas, requests, python-dotenv만 사용 (numpy 등 다른 라이브러리 import 금지)
+  - 시그니처를 바꾸지 않는다. 공개 함수를 새로 만들지 않고, 보조 함수는 밑줄로 시작하는 내부 함수로 만든다 (예: _parse_date, _request_page, _empty_fx)
+  - 모든 함수(보조 함수 포함)에 타입 힌트와 한국어 docstring(설명, Args, Returns, Raises) 필수
+  - 가변 기본값 인자 금지. 전역 변수를 바꾸지 않는다 (파일 맨 위 대문자 상수는 읽기 전용)
+  - print, 파일 읽기/쓰기, 프로젝트의 다른 모듈 import 금지. 값을 받아 RETURN만 한다
+  - API 키를 코드에 쓰지 않고 환경변수에서만 읽는다
+  - 오류 메시지는 한국어로, 무엇이 문제인지 담는다
+
+  [제약 조건, 함수별: fetch_fx_rates]
+  - 자료구조: 반환 열은 정확히 date, usdkrw 2개. date는 문자열, usdkrw는 float. 빈 표도 이 2개 열
+  - 처리 방식: import requests 후 requests.get(url, timeout=REQUEST_TIMEOUT_SEC)로 호출한다.
+    from requests import get, requests.Session은 쓰지 않는다 (테스트가 requests.get을 바꿔 끼운다).
+    응답 객체에서는 status_code, raise_for_status(), json()만 쓴다
+  - 처리 방식: load_dotenv()는 파일 맨 위에서 한 번만 호출하고, 함수 안에서는 os.getenv("ECOS_API_KEY")로만 읽는다
+    (함수 안에서 load_dotenv를 부르면 테스트에서 지운 키가 .env에서 다시 살아난다)
+  - 처리 방식: 상수는 함수 안에서 이름으로 읽는다. 기본값 인자로 묶지 않는다 (테스트가 ECOS_PAGE_SIZE를 바꿔 끼운다)
+  - 처리 방식: 날짜 인자 검사는 strptime만으로 하지 않는다 (strptime은 "2026-1-01"도 통과시킨다). 자리 수까지 확인한다
+  - 하지 말 것: 월/분기 평균을 내지 않는다 (aggregate_quarterly의 역할). 저장 표와 합치지 않는다 (upsert_records의 역할)
+  - 변경 대비: 파일 맨 위 상수로 둔다
+    ECOS_BASE_URL = "https://ecos.bok.or.kr/api/StatisticSearch"
+    ECOS_STAT_CODE = "731Y001"      # 주요국 통화의 대원화환율
+    ECOS_ITEM_CODE = "0000001"      # 원/미국달러(매매기준율)
+    ECOS_CYCLE = "D"                # 일별
+    ECOS_PAGE_SIZE = 1000
+    ECOS_NO_DATA_CODE = "INFO-200"
+    REQUEST_TIMEOUT_SEC = 10
+    FX_COLUMNS = ("date", "usdkrw")
+
+  [통과해야 할 테스트, test_fetch_fx_rates.py, 테스트를 고쳐서 통과시키지 말 것]
+  실제 API를 부르지 않는다. requests.get을 가짜 함수로, ECOS_API_KEY를 가짜 키로 바꿔 끼운다. 환율 값은 가상의 더미 값이다.
+  - 정상 1: 날짜 역순 3행 (20260106 "1452.25", 20260102 "1445.0", 20260105 "1450.5")
+    -> date ["2026-01-02", "2026-01-05", "2026-01-06"], usdkrw [1445.0, 1450.5, 1452.25], 행 번호 0~2
+    -> 요청 1번, URL에 "/StatisticSearch/<키>/json/kr/1/"이 있고 끝이 "/731Y001/D/20260101/20260131/0000001", timeout 있음
+  - 정상 2: ECOS_PAGE_SIZE를 2로 바꾸고 전체 5행 -> 요청 범위 1~2, 3~4, 5~6으로 3번 요청해 5행 모두 반환
+  - 경계 1: 값이 빈 값, "-", null, "0", "-3.5"인 행과 날짜가 20260230인 행은 제거.
+    20260109가 1451.0, 1452.5 순서로 두 번 오면 1452.5만 남김 -> date ["2026-01-02", "2026-01-09"], usdkrw [1445.0, 1452.5]
+  - 경계 2: INFO-200 응답 -> 예외 없이 열 2개(date, usdkrw) 0행
+  - 예외 1: ECOS_API_KEY가 없거나 "   "이면 RuntimeError("ECOS API 키가 없습니다"), requests.get 호출 0번
+  - 예외 2: 연결 오류, 시간 초과, HTTP 500 -> "ECOS API 호출 실패"로 시작하는 RuntimeError (HTTP 500이면 메시지에 500 포함).
+    오류 메시지와 traceback 어디에도 키가 나오지 않음
+  - 예외 3: INFO-100, ERROR-602 응답 -> 메시지에 그 코드가 든 RuntimeError.
+    StatisticSearch도 RESULT도 없는 응답, JSON이 아닌 응답 -> 메시지에 "응답 형식"이 든 RuntimeError
+  - 예외 4: "2026-13-01", "2026-02-30", "2026/01/01", "20260101", "2026-1-01", 시작일이 끝일보다 뒤 -> ValueError, requests.get 호출 0번
+
+- 생성 코드 위치: c800da7c3f1421e6dda17f3f2fc681a0d339e313  
+- 코드 리딩에서 발견한 결함:  
+  1) 날짜 인자가 ASCII 숫자인지 확인하지 않음. 원본 35~41줄은 길이 10과 5, 8번째 글자의 "-"만 보고 나머지는 43~50줄 `pd.to_datetime`에 맡기는데, `pd.to_datetime`은 전각 숫자("２０２６")도 날짜로 읽는다. 그래서 끝일 "２０２６-01-31"이 형식 검사를 통과해 전각 숫자가 든 URL로 ECOS에 요청이 나간다. 사람이 고쳐야 하는 입력 문제인데 ValueError가 나지 않는다. 시작일이 전각이면 52줄 문자열 비교가 어긋나 "시작일이 끝일보다 늦습니다"라는 엉뚱한 메시지가 나온다 (프롬프트 14줄 "네 자리 연도, 두 자리 월, 두 자리 일", 47줄, 79줄 "자리 수까지 확인한다" 위반 / 리딩 체크리스트 2번 경계 추적, 3번 예외 방침 대조)
+  2) INFO-200일 때 돌려주는 빈 표의 열 타입이 명세와 다름. 원본 128줄 `pd.DataFrame(columns=FX_COLUMNS)`는 열 이름만 있어 date, usdkrw가 모두 object다. 값이 모두 무효라 빈 표가 되는 경우(148~153줄)는 usdkrw가 float64라서, 같은 빈 표인데 경로마다 타입이 다르다. 이 빈 표를 저장 표와 이어 붙이면(upsert_records의 concat) pandas 3.0.5에서는 usdkrw 열 전체가 object로 바뀌고, pandas 2.2.3에서는 FutureWarning(곧 동작이 바뀐다는 경고)이 난다. 테스트 경계 2는 열 이름과 행 수만 확인해서 통과했다 (프롬프트 34줄 "usdkrw: float", 36줄, 72줄 "usdkrw는 float. 빈 표도 이 2개 열" 위반 / 리딩 체크리스트 1번 반환 형식 대조, 2번 경계 추적)
+  3) list_total_count가 int일 때만 정상으로 보는 명세 밖 검사. 원본 112~118줄은 list_total_count가 int가 아니면 "응답 형식 오류"로 실패시킨다. 프롬프트는 이 키가 있는지만 요구하는데(52줄), 실제 응답에서 이 값이 숫자 문자열("1234")로 오면 정상 응답인데도 모든 호출이 RuntimeError가 된다. 키가 있어도 환율을 하나도 못 받는 상황이라 리팩터링으로 미룰 수 없는 동작 결함으로 판단했다 (프롬프트 26줄, 52줄과 불일치 / 리딩 체크리스트 1번 명세 대조, 2번 경계 추적)
+
+- 수정 내역: 수정 1, 2 커밋 79dc0872523cbfdd4ca59f9ad93883caf093ccd5    수정 3 커밋 48a854030b839691392077ce6949234cb9b66cd8
+
+| 번호 | 원본 줄 | 원래 코드 | 수정 | 근거와 이유 |
+|---|---|---|---|---|
+| 1 | 35~41 (관련 43~52) | 형식 검사가 `len(value) != 10`, `value[4] != "-"`, `value[7] != "-"`뿐 | 조건에 `or not value.isascii()` 한 줄 추가 | 프롬프트 14줄, 47줄, 79줄 위반. `pd.to_datetime(format="%Y-%m-%d")`가 전각 숫자를 날짜로 읽어, 시작일 "2026-01-01"과 끝일 "２０２６-01-31"을 넣으면 그대로 ECOS 요청까지 감. 수정 후 두 경우 모두 `ValueError("날짜 형식 오류: ...")`. 실제 호출하는 main은 ASCII 날짜만 넘기지만, 명세가 정한 입력 계약을 코드가 지키지 않으므로 수정 |
+| 2 | 127~128 | `return pd.DataFrame(columns=FX_COLUMNS)` | `return pd.DataFrame({"date": pd.Series(dtype=str), "usdkrw": pd.Series(dtype=float)})` | 프롬프트 34줄, 36줄, 72줄 위반. 열 이름만 준 빈 표는 usdkrw가 object. 정상 표(float64)와 이어 붙이면 pandas 3.0.5에서 usdkrw가 object로 바뀌어 aggregate_quarterly의 분기 평균 계산에 영향. 수정 후 빈 표 타입이 정상 표와 같아지고(pandas 3: str/float64, pandas 2: object/float64), 이어 붙여도 float64 유지, 경고 없음 |
+| 3 | 112~118 | `not isinstance(total_count, int)`, `isinstance(total_count, bool)`, `total_count < 0`이면 응답 형식 오류 | `not str(total_count).isdecimal()`이면 응답 형식 오류, 통과하면 `total_count = int(total_count)` | 프롬프트 26줄, 52줄과 불일치. 명세에 없는 타입 제한이라 숫자 문자열 "1"도 실패했음. 수정 후 1과 "1"은 정상, True, -1, "abc", 1.5, "-1"은 그대로 응답 형식 오류. try/except를 새로 두지 않으려고(프롬프트의 try 범위 제한) 먼저 숫자 표기인지 확인한 뒤 int로 바꿈 |
+
+- 테스트 결과: pytest 19 passed  
+- 비고:  
+  1) 수정 3을 따로 커밋한 이유와 프롬프트와의 관계
+     - 코드 리딩 당시에는 실제 키로 응답 타입을 확인한 뒤 판단하려고 보류했으나, 명세 밖 동작이고 정상 응답까지 실패시킬 수 있으므로 키 확인을 기다리지 않고 고치는 것이 맞다고 판단해 수정 1, 2 커밋 뒤에 별도 fix 커밋으로 반영했다.
+     - 프롬프트 52줄은 list_total_count가 "있는지"만 요구하고 값의 타입은 정하지 않았다. int만 받도록 제한한 것은 생성 코드가 임의로 더한 동작이다.
+     - 실제 응답 타입을 아직 확인하지 못했으므로 숫자(1234)와 숫자 문자열("1234") 모두 받도록 했다. 그 밖의 값(True, 음수, 소수, 문자)은 명세대로 "응답 형식 오류" RuntimeError로 알린다. int()로 바꾸기 전에 숫자 표기인지 먼저 확인하므로 TypeError, ValueError 같은 예상 밖 예외는 나지 않는다.
+     - try/except로 감싸지 않은 이유: 프롬프트 58줄 "try/except는 requests.get과 raise_for_status() 호출, json() 해석 부분에만 짧게 둔다"를 지키기 위해서다. detect_anomaly 사이클에서 넓은 try/except가 코드 오류를 "데이터 부족"으로 가렸던 것과 같은 일을 막으려는 규칙이라, 검사를 먼저 하고 변환하는 방식으로 같은 결과를 냈다.
+     - 동작이 바뀌는 수정이므로 refactor:가 아니라 fix:로 커밋했다.
 
 ---
 
