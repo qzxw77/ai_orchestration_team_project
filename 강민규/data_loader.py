@@ -1,3 +1,6 @@
+# [수정 1] 날짜 인자 검사에 ASCII 확인 추가: 전각 숫자("２０２６-01-31")가 형식 검사를 통과하던 문제
+# [수정 2] INFO-200(데이터 없음)일 때 돌려주는 빈 표의 열 타입을 정상 표와 같게(date 문자열, usdkrw float) 맞춤
+
 import os
 
 import pandas as pd
@@ -35,6 +38,7 @@ def fetch_fx_rates(start_date: str, end_date: str) -> pd.DataFrame:
         if (
             not isinstance(value, str)
             or len(value) != 10
+            or not value.isascii()  # [수정 1] 전각 숫자는 pd.to_datetime이 날짜로 읽어 버리므로 여기서 막는다
             or value[4] != "-"
             or value[7] != "-"
         ):
@@ -125,7 +129,11 @@ def fetch_fx_rates(start_date: str, end_date: str) -> pd.DataFrame:
         start_number += ECOS_PAGE_SIZE
 
     if not rows:
-        return pd.DataFrame(columns=FX_COLUMNS)
+        # [수정 2] 열 이름만 준 빈 표는 두 열이 모두 object라 usdkrw가 float이 아니다.
+        # 저장 표와 이어 붙이면(upsert_records) usdkrw 열 전체가 object로 바뀌므로 타입을 지정한다
+        return pd.DataFrame(
+            {"date": pd.Series(dtype=str), "usdkrw": pd.Series(dtype=float)}
+        )
 
     dates = pd.to_datetime(
         pd.Series([row.get("TIME") for row in rows], dtype="object"),
