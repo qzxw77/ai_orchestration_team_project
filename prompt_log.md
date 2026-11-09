@@ -681,6 +681,42 @@ hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED
   1. 구현 가이드의 "어떤 경우에도 예외를 내지 않는다"는 규칙을 준수하기 위해 `try-except`로 전체를 덮는 대신, `get()`과 `_is_valid_number()`를 활용해 타입 에러 자체를 원천 차단하는 방식으로 구현함.
   2. 추후 팀 통합 과정에서 방향 판정 경계값이 변경될 것을 대비해 DIRECTION_BAND_PCT = 2.0을 전역 상수로 분리하여 유지보수성을 높임.
 
+[모듈] llm_module.py (extract_guidance 및 LLM 도우미) (2026-11-09, 작성자: 이다현)
+- 사용 도구: Gemini, GitHub Copilot Chat
+- 
+- 프롬프트:
+- 당신은 파이썬 데이터 분석 코드 작성을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 LLM 모듈(llm_module.py, 텍스트 입출력 전담)에 들어갈 함수를 구현해 주세요. 이 함수는 컨퍼런스콜 텍스트에서 다음 분기 출하가격 전망을 LLM으로 추출하여 guidance 형식으로 정리합니다.
+- [함수 시그니처, 변경 금지] def extract_guidance(transcript_text: str) -> dict:
+- [입력 명세] transcript_text: str (컨퍼런스콜 원문 텍스트)
+- [출력 명세] guidance 형식 dict (키: status, target_quarter, dram_bit_growth_pct, nand_bit_growth_pct, price_outlook, hbm_comment, evidence)
+- [계산 정의]
+  - 빈 입력(None, 공백뿐) 처리: LLM을 부르지 않고 status를 "empty_input"으로 반환
+  - LLM 응답이 JSON이 아니거나 해석 불가능한 경우: status를 "parse_error"로 반환
+  - 정상 처리 시: 응답 값을 검증 및 정규화하여 status를 "ok"로 반환 (추출 실패는 "NA", 전망 없음은 "언급없음")
+- [예외, 경계 방침] 어떤 경우에도 예외를 발생시키지 않는다. 파싱 실패나 규격 외 값은 status와 기본값으로 처리한다.
+- [제약 조건]
+  - LLM 호출은 내부 도우미 `_call_llm(prompt)` 한 곳에서만 수행한다.
+  - schema.md 및 구현 가이드에 따라 mock 모드 전환은 상수 `USE_MOCK = True`로 관리한다.
+  - mock 응답 시 hbm_comment와 evidence 문장 앞에 '[MOCK] ' 표식을 붙인다.
+  - 입력 DataFrame/dict를 직접 수정하지 않고 새 dict를 반환한다 (호출마다 새로운 dict 생성).
+  - 타입 힌트와 한국어 docstring 필수 작성. Raises는 없음.
+- [통과해야 할 테스트] pytest 단위 테스트 (T12~T16) 및 형식 계약 검증 통과 필요.
+- 코드 리딩에서 발견한 결함 (AI와의 설계 논의 과정 중 발견):
+  1. `_call_llm`의 모드 스위치가 환경변수(`LLM_MODE`) 방식이었으나 최신 `schema.md` 규격에서 파일 상단 상수(`USE_MOCK = True`)로 변경됨에 따른 정비 필요.
+  2. mock 응답의 사람이 읽는 문장 값(`hbm_comment`, `evidence`, 브리프 문장) 앞에 `"[MOCK] "` 표식이 누락될 경우 테스트 검증 통과 불가.
+  3. 파이썬 기본 정규식 `\d` 사용 시 전각 숫자가 숫자로 오인식될 수 있어 ASCII 숫자(`re.ASCII`) 검증이 필요함.
+
+| 번호 | 원본 방식 | 수정 코드 | 근거와 이유 |
+| :--- | :--- | :--- | :--- |
+| 1 | 환경변수 `os.getenv("LLM_MODE")` 분기 | 파일 맨 위 상수 `USE_MOCK = True` 사용 | `schema.md` 5.1절 규격에 맞춰 13주차 전환 전후를 상수 하나로 일관되게 제어하기 위함. |
+| 2 | 원문 텍스트 문장을 그대로 반환하는 mock | `hbm_comment` 및 `evidence` 각 문장 앞에 `"[MOCK] "` 표식 추가 | `schema.md` 4.3절 및 5.1절에 따라 mock 응답임을 식별할 수 있도록 표식을 명시하기 위함. |
+| 3 | 일반 `\d` 기반 정규식 매칭 | `re.ASCII` 플래그 및 `isascii()` 검사 추가 | 전각 숫자(`"２０２６"`) 등이 숫자로 잘못 인식되는 결함을 차단하여 데이터 계약을 엄격히 준수하기 위함.
+
+- 테스트 결과: pytest passed (T12~T16 검증 완료)
+- 비고:
+  1. 구현 가이드 및 `schema.md`의 "어떤 경우에도 예외를 내지 않는다"는 원칙을 지키기 위해, `json.loads` 및 타입 검증 과정에서 발생하는 예외를 철저히 방어하여 `parse_error` 또는 기본값으로 안전하게 전환함.
+  2. 모듈 수준의 단일 기본 dict를 재사용하면 앞선 호출의 값이 오염될 수 있으므로, 매 호출마다 새로운 dict를 생성하는 `_new_default_guidance()` 함수를 도입함
+  
 ---
 
 ## 조현모
