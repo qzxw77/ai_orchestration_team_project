@@ -43,6 +43,10 @@ def load_actuals(filepath: str) -> pd.DataFrame:
 
     raw.columns = [str(column).strip() for column in raw.columns]
 
+    duplicated_columns = sorted(set(raw.columns[raw.columns.duplicated()])) 
+    if duplicated_columns:
+        raise ValueError(f"actuals.csv 열 이름 중복: {', '.join(duplicated_columns)}")
+
     missing_columns = [
         column for column in ACTUALS_COLUMNS if column not in raw.columns
     ]
