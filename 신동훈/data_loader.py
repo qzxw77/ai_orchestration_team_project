@@ -32,9 +32,14 @@ def load_actuals(filepath: str) -> pd.DataFrame:
             dtype=str,
             keep_default_na=False,
             skip_blank_lines=False,
+            index_col=False,
         )
     except pd.errors.EmptyDataError as exc:
         raise ValueError("필수 열 누락: quarter, revenue_krw, announced_date") from exc
+    except pd.errors.ParserError as exc:         # 추가
+        raise ValueError(
+            f"actuals.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다 ({exc})"
+        ) from exc
 
     raw.columns = [str(column).strip() for column in raw.columns]
 
