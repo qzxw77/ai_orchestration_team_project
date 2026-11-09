@@ -213,3 +213,45 @@ def test_L12_file_not_found(tmp_path):
     """L12 예외: 없는 경로면 FileNotFoundError가 그대로 난다."""
     with pytest.raises(FileNotFoundError):
         load_actuals(str(tmp_path / "없음.csv"))
+
+# ---------------------------------------------------------------- 코드 리딩 결함 회귀 테스트
+# 아래 L13·L14는 4단계 코드 리딩에서 발견한 결함을 근거로 추가함(기존 L01~L12는 수정하지 않음).
+
+def test_L13_fullwidth_digit_quarter(tmp_path):
+    """L13 예외(결함 2): 전각 숫자 quarter('２０２５Q1')는 형식 오류로 막는다.
+
+    \\d는 유니코드 숫자 전체와 맞아서 전각 숫자가 통과했고,
+    estimate_revenue에서 "2025Q1"과 다른 분기로 취급되는 문제가 있었다.
+    """
+    content = _g_with_q1_row("２０２５Q1,19600000000000,2025-04-24")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_actuals(_write(tmp_path, content))
+
+    message = str(exc_info.value)
+    assert "형식 오류" in message
+    assert "２０２５Q1" in message
+
+
+@pytest.mark.filterwarnings("ignore::pandas.errors.ParserWarning")
+@pytest.mark.parametrize(
+    "content",
+    [
+        # 매출에 쉼표를 쓰고 따옴표를 빠뜨림 → 헤더보다 칸이 많음
+        HEADER + "\n2025Q1,19,600,000,000,000,2025-04-24\n",
+        # 한 행만 칸이 하나 더 많음 → 행마다 칸 수가 다름
+        HEADER + "\n2025Q1,19600000000000,2025-04-24\n"
+                 "2025Q2,21000000000000,2025-07-24,메모\n",
+    ],
+    ids=["unquoted_comma_revenue", "one_row_extra_field"],
+)
+def test_L14_mismatched_field_count(tmp_path, content):
+    """L14 예외(결함 1): 칸 수가 맞지 않는 줄은 TypeError가 아니라 한국어 ValueError로 알린다.
+
+    pandas가 넘치는 칸을 index로 자동 추론해 int(row_index)에서
+    TypeError·영어 ValueError가 나던 문제가 있었다.
+    """
+    with pytest.raises(ValueError) as exc_info:
+        load_actuals(_write(tmp_path, content))
+
+    assert "형식 오류" in str(exc_info.value)
