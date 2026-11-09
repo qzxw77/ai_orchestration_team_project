@@ -56,7 +56,7 @@ def load_actuals(filepath: str) -> pd.DataFrame:
     actuals = actuals.loc[non_empty].copy()
 
     if actuals.empty:
-        return pd.DataFrame(columns=ACTUALS_COLUMNS)
+        return actuals.astype({"revenue_krw": "float64"}).reset_index(drop=True)
 
     errors: list[str] = []
     revenues: list[float] = []
