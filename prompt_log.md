@@ -566,8 +566,8 @@ L12 예외: 존재하지 않는 경로 → FileNotFoundError
 
 - 수정 내역:
   - `2b9acaa` (수정1): `read_csv`에 `index_col=False` 추가. `ParserError`는 `ValueError("actuals.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다 (...)")`로 변환. 따옴표 없는 쉼표 입력은 이제 `2행 announced_date '600'` 형식 오류로 알림(칸이 밀린 탓에 문제 열이 announced_date로 표시되는 한계는 있음)
-  - `10f0088` (수정2): `QUARTER_PATTERN`을 `r"^[0-9]{4}Q[1-4]$"`로 변경해 ASCII 숫자만 허용
-  - `d8f5090` (수정3): 빈 표 반환을 `actuals.astype({"revenue_krw": "float64"}).reset_index(drop=True)`로 교체. quarter·announced_date의 타입도 정상 경로와 같아짐
+  - `d8f5090` (수정2): `QUARTER_PATTERN`을 `r"^[0-9]{4}Q[1-4]$"`로 변경해 ASCII 숫자만 허용
+  - `10f0088` (수정3): 빈 표 반환을 `actuals.astype({"revenue_krw": "float64"}).reset_index(drop=True)`로 교체. quarter·announced_date의 타입도 정상 경로와 같아짐
   - `d791b97` (수정4): 열 이름 공백 제거 직후 중복 검사 추가 → `ValueError("actuals.csv 열 이름 중복: <열 이름>")`
   - `f24931f` (테스트 추가): 결함 1·2 회귀 테스트 L13·L14 추가. 원본 코드에서 3건 실패, 수정 코드에서 통과 확인. 기존 L01~L12는 수정하지 않음
 
