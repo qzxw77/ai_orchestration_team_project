@@ -243,7 +243,7 @@
 
 ## 신동훈
 
-[모듈] forecaster.py · estimate_revenue — 2026-11-02, 작성자: 신동훈
+[forecaster.py] estimate_revenue — 2026-11-02, 작성자: 신동훈
 
 - 사용 도구: GitHub Copilot Chat 
 - 프롬프트:
@@ -391,6 +391,204 @@ A04 예외: actuals의 2025Q1 revenue_krw NaN → "insufficient_history", 숫자
   | A03 | 경계 | test_a03_no_prev_quarter_actual | 2024Q4 추가, 직전 분기(2025Q4) 실적 삭제 | 기준 분기 2024Q4~2025Q3로 계산 (ratio_used 1.475, 중앙값 25.665조), qoq_change_pct만 None |
   | A04 | 예외 | test_a04_revenue_nan_not_counted | actuals의 2025Q1 revenue_krw를 NaN으로 변경 | 결측 실적은 기준 분기에서 빠짐 → status "insufficient_history" |
 
+---
+
+[data_loader.py] load_actuals — 2026-11-09, 작성자: 신동훈
+
+- 사용 도구: GitHub Copilot Chat (Ask 모드, #file:test_load_actuals.py 참조)
+- 설계 근거: 설계 문서 V1 파트 2 (3)·(4) actuals 표, 구현 가이드 1.1절 load_actuals Pseudocode·부록 6
+- 테스트 파일: `521f13a` (Copilot 생성 전 커밋, L01~L12)
+- 프롬프트:
+```
+당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다.
+SK하이닉스 분기 매출 나우캐스팅 시스템의 적재 모듈 data_loader.py에 들어갈
+함수 load_actuals를 구현해 주세요. 이 함수는 팀원이 DART 공시를 보고 손으로 작성한
+분기 확정 매출 CSV를 읽어 형식을 검사한 뒤, 표준 스키마의 actuals 표로 돌려줍니다.
+#file:test_load_actuals.py 의 테스트를 모두 통과해야 합니다. 테스트 파일은 수정하지 마세요.
+
+[함수 시그니처 — 변경 금지]
+import pandas as pd
+
+def load_actuals(filepath: str) -> pd.DataFrame:
+
+[입력 명세]
+filepath: str — 실적 CSV 경로 (예: "data/actuals.csv")
+- UTF-8 텍스트, 첫 줄은 열 이름. 엑셀로 저장해 UTF-8 BOM이 붙어 있을 수 있다.
+- 필수 열 3개: quarter, revenue_krw, announced_date
+  (열 순서는 파일마다 다를 수 있고, memo 같은 추가 열이 있을 수 있다)
+- 사람이 입력한 파일이라 다음이 섞일 수 있다: 열 이름·값의 앞뒤 공백,
+  천 단위 쉼표("19,600,000,000,000"), 지수 표기("1.96E+13"), 세 칸이 모두 빈 줄(",,")
+예)
+quarter,revenue_krw,announced_date
+2025Q1,"19,600,000,000,000",2025-04-24
+2025Q2,21000000000000,2025-07-24
+
+[출력 명세] pd.DataFrame (actuals 표)
+- 열은 정확히 3개, 이 순서로: quarter, revenue_krw, announced_date
+- quarter: str "YYYYQn" (n은 1~4), 중복 없음
+- revenue_krw: float (원 단위, 0 초과의 유한한 수), dtype float64
+- announced_date: str "YYYY-MM-DD" (날짜 타입으로 바꾸지 않음)
+- quarter 오름차순 정렬, 행 번호(index)는 0부터 다시 매긴다
+- 결측(NaN)이 하나도 없다
+- 데이터 행이 0개이면 위 열 3개만 있는 빈 표를 돌려준다
+예) quarter="2025Q1", revenue_krw=1.96e13, announced_date="2025-04-24"
+
+[처리 순서 — Pseudocode]
+CSV를 CSV_ENCODING으로, 모든 열을 문자열로 읽는다
+    (빈칸·"N/A" 같은 값을 결측으로 바꾸지 않고 원문 그대로 둔다 — 오류 메시지에 원래 값을 보여 주기 위해)
+    (파일이 없으면 FileNotFoundError가 그대로 나가게 둔다)
+IF 파일이 0바이트라 열 이름 줄도 없으면
+    ValueError("필수 열 누락: quarter, revenue_krw, announced_date")를 발생시킨다
+열 이름의 앞뒤 공백을 지운다
+IF ACTUALS_COLUMNS 중 없는 열이 있으면
+    ValueError("필수 열 누락: <없는 열 이름들, 쉼표로 이어서>")를 발생시킨다
+표 = ACTUALS_COLUMNS 3개만 이 순서로 남긴 복사본 (추가 열은 버린다)
+모든 값의 앞뒤 공백을 지운다
+세 값이 모두 빈 문자열인 행을 제거한다
+IF 남은 행이 0개이면
+    RETURN 열 3개만 있는 빈 actuals 표
+오류 목록 = 빈 목록
+FOR 각 행 반복
+    줄 번호 = 열 이름 줄을 1행, 첫 데이터 행을 2행으로 센 번호 (빈 행 제거 전 순서 기준)
+    IF quarter가 QUARTER_PATTERN에 맞지 않으면
+        오류 목록에 "<줄 번호>행 quarter '<원래 값>'"을 추가한다
+    매출 = revenue_krw에서 쉼표를 지우고 float로 바꾼 값 (바꿀 수 없으면 결측)
+    IF 매출이 결측이거나 유한한 수가 아니거나(inf, nan) 0 이하이면
+        오류 목록에 "<줄 번호>행 revenue_krw '<원래 값>'"을 추가한다
+    IF announced_date가 DATE_PATTERN에 맞지 않거나 DATE_FORMAT으로 실제 날짜로 읽히지 않으면
+        오류 목록에 "<줄 번호>행 announced_date '<원래 값>'"을 추가한다
+IF 오류 목록이 비어 있지 않으면
+    ValueError("actuals.csv 형식 오류: " + 오류 목록을 "; "로 이어 붙인 문자열)를 발생시킨다
+IF 같은 quarter가 두 번 이상 있으면
+    ValueError("actuals.csv 분기 중복: <중복 quarter들, 쉼표로 이어서>")를 발생시킨다
+revenue_krw 열을 변환한 float 값으로 바꾼다
+quarter 오름차순으로 정렬하고 행 번호를 0부터 다시 매긴다
+RETURN actuals 표
+
+[예외·경계 방침]
+- 사람이 고쳐야 하는 입력 문제는 모두 ValueError로 알린다. 잘못된 행을 조용히 지우거나 고치지 않는다.
+- 형식 오류는 첫 오류에서 멈추지 않고 모든 행을 검사한 뒤 한 번에 알린다.
+  메시지 예: "actuals.csv 형식 오류: 3행 quarter '2025-Q2'; 5행 revenue_krw 'N/A'"
+- 형식 검사를 먼저 하고, 형식 오류가 없을 때만 분기 중복을 검사한다.
+- 세 값이 모두 빈칸인 행만 무시한다. 일부 칸만 빈칸이면 형식 오류다.
+- 열 이름 줄만 있는 파일은 오류가 아니다(빈 actuals 표 반환).
+- "2025q1"처럼 비슷한 표기를 자동으로 고치지 않는다(형식 오류).
+- announced_date는 월·일이 두 자리여야 하고 달력에 있는 날짜여야 한다("2025-4-24", "2025-02-30"은 형식 오류).
+- 0바이트 파일에서 pandas가 내는 EmptyDataError만 잡아 위 ValueError로 바꾸어 발생시킨다(raise ... from 사용).
+  그 밖의 except는 쓰지 않는다. except: 나 except Exception: pass 같은 광범위한 예외 삼키기를 금지한다.
+- 결측 확인은 pd.isna() 또는 math.isfinite()로 한다(== NaN 비교 금지).
+
+[제약 조건 — 프로젝트 공통]
+- Python 3.10 이상. 이 함수에는 파이썬 표준 라이브러리(re, datetime, math 등)와 pandas만 사용한다.
+  numpy 등을 직접 import하지 않는다. data_loader.py에 허용된 requests·python-dotenv도 이 함수에는 쓰지 않는다.
+- 시그니처를 바꾸지 않는다. 공개 함수를 새로 만들지 않고, 보조 함수는
+  밑줄로 시작하는 내부 함수(예: _parse_revenue)로 같은 파일에 둔다.
+- 모든 함수(내부 함수 포함)에 타입 힌트와 한국어 docstring(설명, Args, Returns, Raises)을 단다.
+- 가변 기본값 인자 금지. 전역 변수를 읽거나 바꾸지 않는다(파일 맨 위 대문자 상수는 읽기 전용 허용).
+- 파일 읽기는 filepath 한 개만 하고, 파일 쓰기는 하지 않는다. print, 다른 팀 모듈 import를 하지 않는다.
+- 오류 메시지는 한국어로, 무엇이 문제인지(열 이름, 줄 번호, 값, 분기)를 담는다.
+
+[제약 조건 — 함수별: load_actuals]
+- 자료구조: 반환 열 3개의 이름·순서·타입 고정. quarter·announced_date는 str, revenue_krw는 float64.
+- 처리 방식: CSV는 모든 열을 문자열로 읽는다(숫자 자동 변환 금지). revenue_krw는 원 단위 그대로 두고 반올림하지 않는다.
+- 하지 말 것: 잘못된 행 삭제, 결측을 0으로 채우기(clean_exports와 반대 방침).
+  조 원 변환 같은 표시용 가공, 분기 집계·비율 계산(다른 모듈의 역할).
+  발표일과 분기의 선후 관계처럼 명세에 없는 검사 추가.
+- 변경 대비: 파일 맨 위에 아래 상수를 둔다.
+  ACTUALS_COLUMNS = ("quarter", "revenue_krw", "announced_date")
+  CSV_ENCODING = "utf-8-sig"
+  QUARTER_PATTERN = r"^\d{4}Q[1-4]$"
+  DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+  DATE_FORMAT = "%Y-%m-%d"
+
+[통과해야 할 테스트 — L01~L12]
+공통 파일 G (UTF-8, 정렬되지 않음)
+quarter,revenue_krw,announced_date
+2025Q3,21000000000000,2025-10-23
+2025Q1,19600000000000,2025-04-24
+2025Q4,"22,400,000,000,000",2026-01-22
+2025Q2,21000000000000,2025-07-24
+
+L01 정상: G → 4행, 열 [quarter, revenue_krw, announced_date],
+          quarter ["2025Q1","2025Q2","2025Q3","2025Q4"], revenue_krw [1.96e13, 2.1e13, 2.1e13, 2.24e13] (float64),
+          announced_date ["2025-04-24","2025-07-24","2025-10-23","2026-01-22"], index 0~3, 결측 없음
+L02 정상: G와 같은 내용을 UTF-8 BOM으로 저장하고 열 이름·값 앞뒤 공백, memo 열, "2.1E+13" 표기를 섞음
+          → L01과 완전히 같은 표(pd.testing.assert_frame_equal)
+L03 경계: 열 이름 줄만 있는 파일 → 0행, 열 3개, 예외 없음
+L04 경계: G 중간에 ",," 줄 삽입 → L01과 같은 결과
+L05 예외: ① revenue_krw 열 없음 ② quarter·announced_date 열 없음
+          → ValueError, 메시지에 "필수 열 누락"과 없는 열 이름 모두 포함
+L06 예외: 0바이트 파일 → ValueError, 메시지에 "필수 열 누락"
+L07 예외: 2025Q1 행 quarter를 "2025-Q1" / "2025Q5" / "25Q1" / "2025q1"로 변경
+          → ValueError, 메시지에 "형식 오류"와 그 값 포함
+L08 예외: 2025Q1 행 revenue_krw를 "N/A" / "" / "0" / "-1" / "inf" / "abc"로 변경
+          → ValueError, 메시지에 "형식 오류"와 "revenue_krw" 포함
+L09 예외: 2025Q1 행 announced_date를 "2025/04/24" / "2025-4-24" / "2025-02-30" / ""로 변경
+          → ValueError, 메시지에 "형식 오류"와 "announced_date" 포함
+L10 예외: G에 "2025Q1,19700000000000,2025-04-25" 행 추가 → ValueError, 메시지에 "분기 중복"과 "2025Q1"
+L11 예외: 3행 quarter "2025-Q2", 5행 revenue_krw "N/A"(나머지 정상)
+          → ValueError 한 번, 메시지에 "3행"과 "5행" 모두 포함
+L12 예외: 존재하지 않는 경로 → FileNotFoundError
+금액 비교는 pytest.approx(rel=1e-6) 또는 assert_frame_equal로 한다.
+
+[출력 방식]
+- 파일을 직접 만들거나 수정하지 말고, 터미널 명령(pytest 등)도 실행하지 마세요.
+- data_loader.py에 넣을 코드(import, 상수, 내부 함수, load_actuals)만 채팅에 코드 블록 하나로 보여 주세요.
+  같은 파일의 fetch_regional_exports·fetch_fx_rates는 작성하지 마세요.
+```
+- 생성 코드 위치: `7c4af18` (수정 전 원본)
+- 코드 리딩에서 발견한 결함:
+  1) 칸 수가 맞지 않는 줄에서 TypeError·영어 ValueError 발생
+     - 헤더보다 칸이 많은 줄이 있으면 pandas가 앞쪽 칸을 index로 자동 추론함. 그러면 줄 번호 계산 `int(row_index) + 2`(원본 60줄)에서 오류가 나고 열도 한 칸씩 밀림
+     - 따옴표 없이 쉼표를 쓴 매출(`2025Q1,19,600,000,000,000,2025-04-24`) → `TypeError`. 모든 행에 칸이 하나 더 있는 경우 → `invalid literal for int()` 영어 ValueError. 한 행만 칸이 많은 경우 → pandas `ParserError` 영어 메시지가 그대로 나감
+     - 명세 "사람이 고쳐야 하는 입력 문제는 한국어 ValueError" 위반. L01~L12는 칸 수가 맞는 파일만 써서 24건 모두 통과했고, 메모장 입력 실수를 가정한 입력을 넣어 한 줄씩 따라가며 발견함
+
+  2) 전각 숫자 quarter 통과
+     - `QUARTER_PATTERN`의 `\d`(원본 10줄)는 0~9뿐 아니라 모든 유니코드 숫자와 맞아서, 전각 모드로 입력한 `２０２５Q1`이 형식 검사를 통과함
+     - 화면에서는 2025Q1처럼 보이지만 문자열이 달라서 다음 문제가 생김: estimate_revenue가 실적을 찾지 못함(`insufficient_history`, qoq None). `2025Q1`과 함께 있어도 분기 중복 검사에 걸리지 않음. 정렬하면 맨 뒤로 밀림
+     - announced_date는 strptime이 전각 숫자를 거부해 이중 검사로 막히지만, quarter는 정규식 하나로만 검사해서 생긴 구멍
+
+  3) 빈 표의 revenue_krw dtype이 float64가 아님
+     - 데이터 행이 0개일 때 `pd.DataFrame(columns=ACTUALS_COLUMNS)`(원본 54줄)로 새 표를 만들어서 세 열이 모두 object
+     - 출력 명세 "revenue_krw dtype float64" 위반. L03은 행 수와 열 이름만 확인해서 놓침
+
+  4) 공백 제거 후 열 이름이 겹치면 TypeError 발생
+     - 헤더가 `quarter, quarter,...`이면 열 이름 공백 제거(원본 39줄) 후 quarter 열이 두 개가 됨. 그러면 `row["quarter"]`가 Series가 되어 정규식 검사에서 TypeError
+     - 입력 문제는 ValueError로 알린다는 방침 위반
+
+  - 기타 판단 (수정하지 않음):
+    - `float()`가 언더스코어(`19_600_000_000_000`)와 전각 숫자 매출도 숫자로 읽음 → 읽힌 값 자체가 정확해서 데이터 오염이 없으므로 허용
+    - `pd.isna(revenue)`는 `math.isfinite`와 중복이고, 마지막 `return actuals.loc[:, ACTUALS_COLUMNS]`는 이미 그 열만 있어 불필요 → 동작에 영향 없음
+    - `DataFrame.map`은 pandas 2.1 이상 필요 → 팀 환경 버전 확인 필요
+  - 의도대로 동작함을 확인한 부분:
+    - `keep_default_na=False` + `skip_blank_lines=False`로 진짜 빈 줄이 있어도 오류 메시지의 줄 번호가 실제 파일 줄과 일치함. 프롬프트에서 요구하지 않은 경우까지 처리함
+    - EmptyDataError만 좁게 잡아 `raise ... from`으로 변환함. 광범위한 except 없음
+
+- 수정 내역:
+  - `2b9acaa` (수정1): `read_csv`에 `index_col=False` 추가. `ParserError`는 `ValueError("actuals.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다 (...)")`로 변환. 따옴표 없는 쉼표 입력은 이제 `2행 announced_date '600'` 형식 오류로 알림(칸이 밀린 탓에 문제 열이 announced_date로 표시되는 한계는 있음)
+  - `10f0088` (수정2): `QUARTER_PATTERN`을 `r"^[0-9]{4}Q[1-4]$"`로 변경해 ASCII 숫자만 허용
+  - `d8f5090` (수정3): 빈 표 반환을 `actuals.astype({"revenue_krw": "float64"}).reset_index(drop=True)`로 교체. quarter·announced_date의 타입도 정상 경로와 같아짐
+  - `d791b97` (수정4): 열 이름 공백 제거 직후 중복 검사 추가 → `ValueError("actuals.csv 열 이름 중복: <열 이름>")`
+  - `f24931f` (테스트 추가): 결함 1·2 회귀 테스트 L13·L14 추가. 원본 코드에서 3건 실패, 수정 코드에서 통과 확인. 기존 L01~L12는 수정하지 않음
+
+- 테스트 결과: pytest 27 passed (테스트 함수 14개: 정상 2 · 경계 2 · 예외 10, 값을 바꿔 반복하는 케이스 포함 27건)
+
+  | ID | 범주 | 테스트 함수 | 테스트 내용 | 확인한 결과 |
+  | --- | --- | --- | --- | --- |
+  | L01 | 정상 | test_L01_normal_file | 공통 파일 G (정렬 안 됨, 쉼표 표기 매출 포함) | 4행, 열 순서 고정, quarter 2025Q1→Q4 정렬, 매출 float64(19.6조·21조·21조·22.4조), index 0~3, 결측 없음 |
+  | L02 | 정상 | test_L02_messy_but_valid_file | G와 같은 내용에 BOM·앞뒤 공백·memo 열·`2.1E+13` 표기를 섞음 | L01과 완전히 같은 표 |
+  | L03 | 경계 | test_L03_header_only_returns_empty_table | 열 이름 줄만 있는 파일 | 0행, 열 3개, 예외 없음 |
+  | L04 | 경계 | test_L04_blank_row_is_ignored | G 중간에 `,,` 줄 삽입 | 빈 줄을 무시하고 L01과 같은 결과 |
+  | L05 | 예외 | test_L05_missing_required_columns | ① revenue_krw 열 없음 ② quarter·announced_date 열 없음 | ValueError "필수 열 누락", 없는 열 이름 모두 표시 |
+  | L06 | 예외 | test_L06_zero_byte_file | 0바이트 파일 | EmptyDataError가 아닌 ValueError "필수 열 누락" |
+  | L07 | 예외 | test_L07_invalid_quarter | quarter `2025-Q1`·`2025Q5`·`25Q1`·`2025q1` | ValueError "형식 오류", 잘못된 값 표시 |
+  | L08 | 예외 | test_L08_invalid_revenue | 매출 `N/A`·빈칸·`0`·`-1`·`inf`·`abc` | ValueError "형식 오류", revenue_krw 표시 |
+  | L09 | 예외 | test_L09_invalid_announced_date | 날짜 `2025/04/24`·`2025-4-24`·`2025-02-30`·빈칸 | ValueError "형식 오류", announced_date 표시 |
+  | L10 | 예외 | test_L10_duplicate_quarter | 2025Q1 행 중복 | ValueError "분기 중복: 2025Q1" |
+  | L11 | 예외 | test_L11_all_format_errors_reported_at_once | 3행 quarter 오류, 5행 매출 오류 | ValueError 한 번에 3행·5행 모두 표시 |
+  | L12 | 예외 | test_L12_file_not_found | 없는 경로 | FileNotFoundError 그대로 발생 |
+  | L13 | 예외 | test_L13_fullwidth_digit_quarter | quarter `２０２５Q1` (결함 2 회귀) | ValueError "형식 오류", 전각 값 표시 |
+  | L14 | 예외 | test_L14_mismatched_field_count | 따옴표 없는 쉼표 매출 / 한 행만 칸이 많음 (결함 1 회귀) | TypeError·영어 메시지 없이 ValueError "형식 오류" |
 ---
 
 ## 신해성
