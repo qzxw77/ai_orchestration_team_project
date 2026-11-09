@@ -7,7 +7,7 @@ import pandas as pd
 
 ACTUALS_COLUMNS = ("quarter", "revenue_krw", "announced_date")
 CSV_ENCODING = "utf-8-sig"
-QUARTER_PATTERN = r"^\d{4}Q[1-4]$"
+QUARTER_PATTERN = r"^[0-9]{4}Q[1-4]$"
 DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
 DATE_FORMAT = "%Y-%m-%d"
 
