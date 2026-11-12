@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from hynix_nowcast.preprocess import aggregate_quarterly
+from preprocess import aggregate_quarterly
 
 
 def test_aggregate_normal():
