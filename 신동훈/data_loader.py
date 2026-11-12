@@ -23,7 +23,7 @@ def load_actuals(filepath: str) -> pd.DataFrame:
 
     Raises:
         FileNotFoundError: 파일이 존재하지 않을 때 발생한다.
-        ValueError: CSV의 열 또는 데이터 형식이 올바르지 않을 때 발생한다.
+        ValueError: CSV의 열 또는 데이터 형식이 올바르지 않거나, UTF-8로 읽을 수 없을 때 발생한다.
     """
     try:
         raw = pd.read_csv(
@@ -34,12 +34,21 @@ def load_actuals(filepath: str) -> pd.DataFrame:
             skip_blank_lines=False,
             index_col=False,
         )
+
+    except UnicodeDecodeError:
+       # 엑셀 "CSV(쉼표로 분리)" 저장 파일은 cp949라 UTF-8로 읽을 수 없다.
+        # 그대로 두면 "'utf-8' codec can't decode ..."만 보여 무엇을 고칠지 알 수 없으므로 안내 문장으로 바꾼다
+        raise ValueError(
+           "actuals.csv 인코딩 오류: UTF-8로 저장해 주세요 (엑셀은 'CSV UTF-8(쉼표로 분리)'로 저장)"
+       ) from None
+
     except pd.errors.EmptyDataError as exc:
         raise ValueError("필수 열 누락: quarter, revenue_krw, announced_date") from exc
-    except pd.errors.ParserError as exc:         # 추가
-        raise ValueError(
-            f"actuals.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다 ({exc})"
-        ) from exc
+
+    except pd.errors.ParserError as exc:
+         raise ValueError(
+             f"actuals.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다 ({exc})"
+         ) from exc
 
     raw.columns = [str(column).strip() for column in raw.columns]
 

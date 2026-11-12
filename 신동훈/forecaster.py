@@ -3,7 +3,9 @@ import pandas as pd
 
 RATIO_WINDOW = 4
 MONTHS_PER_QUARTER = 3
-
+FORECAST_STATUS_OK = "ok"
+FORECAST_STATUS_NO_DATA = "no_data"
+FORECAST_STATUS_INSUFFICIENT = "insufficient_history"
 
 def _quarter_index(quarter: str) -> int | None:
     """분기 문자열을 시간순 비교용 정수로 변환한다.
@@ -17,7 +19,8 @@ def _quarter_index(quarter: str) -> int | None:
     Raises:
         없음
     """
-    if not isinstance(quarter, str):
+    # 전각 숫자("２０２６Q4")는 isdecimal()을 통과하므로 ASCII로 한정한다 (schema.md 1.1)
+    if not isinstance(quarter, str) or not quarter.isascii():
         return None
     if len(quarter) != 6 or quarter[4] != "Q":
         return None
@@ -79,7 +82,7 @@ def estimate_revenue(
         "qoq_change_pct": None,
         "ratio_used": None,
         "months_available": 0,
-        "status": "no_data",
+        "status": FORECAST_STATUS_NO_DATA,
     }
 
     if _quarter_index(target_quarter) is None:
@@ -115,7 +118,7 @@ def estimate_revenue(
     ].sort_values("quarter")
 
     if len(base) < RATIO_WINDOW:
-        result["status"] = "insufficient_history"
+        result["status"] = FORECAST_STATUS_INSUFFICIENT
         return result
 
     # 3) 가장 최근 기준 분기 4개의 비율 → 중앙값·하한·상한
@@ -143,5 +146,5 @@ def estimate_revenue(
         "qoq_change_pct": qoq_change_pct,
         "ratio_used": float(ratio_used),
         "months_available": months_available,
-        "status": "ok",
+        "status": FORECAST_STATUS_OK,
     }
