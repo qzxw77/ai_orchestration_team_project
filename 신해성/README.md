@@ -10,8 +10,9 @@ hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED [100%]
 
 ============================== 3 passed in 1.50s ==============================
 
-============================= 9주차 (data_loader.py) test session starts =============================
+============================= week09 (data_loader.py) test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.2.0, pluggy-1.7.0 -- C:\Users\s2h02\my_project\venv1\Scripts\python.exe
+cachedir: .pytest_cache
 rootdir: <repository-root>
 collecting ... collected 19 items
 
@@ -35,4 +36,4 @@ hynix_nowcast/test_data_loader.py::test_parse_customs_page_reports_api_error_cod
 hynix_nowcast/test_data_loader.py::test_parse_customs_page_rejects_success_without_body PASSED [ 94%]
 hynix_nowcast/test_data_loader.py::test_fetch_customs_rows_requests_next_page_until_total_count PASSED [100%]
 
-============================= 19 passed in 1.13s ==============================
+============================= 19 passed in 1.26s ==============================
