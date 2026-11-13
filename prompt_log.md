@@ -1116,6 +1116,28 @@ hs_code가 결측이거나 다른 품목인 행은 제외해야 합니다.
 - 코드·테스트·README 수정 커밋: `e141087 fix: enforce module data contracts`
 - 이 기록은 위 커밋의 `preprocess.py` 수정사항과 리뷰 판단을 설명한다.
 
+#### preprocess.py 최종 수정 요약
+
+- 수정 날짜: 2026-11-13
+- 수정 대상 함수: `aggregate_quarterly`
+- 수정 커밋: `e141087 fix: enforce module data contracts`
+- 수정 내용:
+  1. `math.isfinite`를 사용해 환율의 NaN, 양의 무한대, 음의 무한대,
+     0 이하 값을 평균 계산 전에 제외했다.
+  2. `hs_code`가 `"854232"`인 행만 남겨 다른 품목과 결측 품목의
+     수출액이 합산되지 않도록 했다.
+  3. `_empty_quarterly_table`와 `aggregate_quarterly`의 `Returns` 및
+     `Raises` docstring에 반환 열, 타입, 필터 규칙을 구체적으로 적었다.
+  4. 위 동작을 확인하는 `test_filters_non_target_hs_codes_and_invalid_exchange_rates`
+     회귀 테스트를 추가했다.
+- 피드백 처리:
+  - 환율 무한대 필터 누락과 `hs_code` 필터 누락은 실제 코드에서 재현되어
+    수용하고 수정했다.
+  - 문법 오류와 `_call_llm` 미정의 문제는 현재 신해성 `preprocess.py`에서
+    재현되지 않고 대상 함수도 없어 보류했다.
+- 최종 검증: `신해성/test_preprocess.py` 4개와
+  `신해성/test_data_loader.py` 19개, 총 23개 테스트 통과.
+
 ---
 ---
 
