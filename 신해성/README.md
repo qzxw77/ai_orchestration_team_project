@@ -1,4 +1,4 @@
-====================== test session starts =======================
+====================== 9주차 (preprocess.py) test session starts =======================
 platform win32 -- Python 3.13.15, pytest-9.2.0, pluggy-1.7.0 -- C:\Users\s2h02\my_project\venv1\Scripts\python.exe
 cachedir: .pytest_cache
 rootdir: <repository-root>
@@ -10,7 +10,7 @@ hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED [100%]
 
 ============================== 3 passed in 1.50s ==============================
 
-============================= test session starts =============================
+============================= 9주차 (data_loader.py) test session starts =============================
 platform win32 -- Python 3.13.15, pytest-9.2.0, pluggy-1.7.0 -- C:\Users\s2h02\my_project\venv1\Scripts\python.exe
 rootdir: <repository-root>
 collected 18 items
