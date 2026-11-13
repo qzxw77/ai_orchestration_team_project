@@ -255,6 +255,15 @@ def test_parse_customs_page_reports_api_error_code():
         data_loader._parse_customs_page(root, "이천시")
 
 
+def test_parse_customs_page_rejects_success_without_body():
+    root = ET.fromstring(
+        "<response><header><resultCode>00</resultCode></header></response>"
+    )
+
+    with pytest.raises(RuntimeError, match="응답 형식 오류"):
+        data_loader._parse_customs_page(root, "이천시")
+
+
 def test_fetch_customs_rows_requests_next_page_until_total_count(monkeypatch):
     calls = []
     responses = [

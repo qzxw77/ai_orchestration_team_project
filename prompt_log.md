@@ -845,110 +845,63 @@ hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED
 
 ### [data_loader] fetch_regional_exports (2026-11-13, 작성자: 신해성)
 
-- 기록 성격: 최초 프롬프트 원문이 보존되어 있지 않아, 현재 구현·테스트·제공된 공공데이터포털 명세를 바탕으로 요구사항과 정밀 프롬프트를 역추적하여 재구성했다.
 - 사용 도구: GitHub Copilot, GPAI, pytest
+- 기준: 지역 수출 원자료 수집 구현 가이드와 공공데이터포털 API 명세
 
-### ① 논리 설계
+### ① 요구사항 정리
 
-- 구현 대상: `hynix_nowcast/data_loader.py`의 `fetch_regional_exports`
-- 목적: 관세청 시군구별 품목별 수출입실적 API에서 이천시와 청주시가 속한 시도의 HS 854232 월별 원자료를 수집한다.
-
-- 함수 시그니처:
+- 구현 대상: `신해성/data_loader.py`의 `fetch_regional_exports`
+- 책임: 관세청 API에서 이천시·청주시 메모리 반도체(HS 854232)의 월별 수출 원자료를 받는다.
+- 시그니처:
 
 ```python
 def fetch_regional_exports(start_ym: str, end_ym: str) -> pd.DataFrame:
 ```
 
-- 요청 명세:
-  - API 주소: 공공데이터포털 관세청 시군구별 품목별 수출입실적 XML API
-  - 요청 변수: `serviceKey`, `strtYymm`, `endYymm`, `HsSgn`, `sidoCd`
-  - 대상 품목: HS 코드 `854232`
-  - 대상 시도: 경기도 `41`, 충청북도 `43`
-  - 조회 기간: `YYYY-MM` 입력을 검증한 뒤 `YYYYMM`으로 변환한다.
-  - API 요청 기간은 최대 12개월로 나누며, 페이지 변수 지원 여부는 실제 명세 확인 전까지 가정으로 둔다.
+- 입력: `start_ym`, `end_ym`은 `YYYY-MM` 형식의 시작월과 끝월이다.
+- 출력: API 응답 행을 원래 열 이름과 값으로 유지한 DataFrame이며, 실행 날짜를 `collected_at` 열로 추가한다.
+- 고정 규칙: 열 이름 변경, 형식 변환, 지역 필터, 결측치 필터는 하지 않는다. 이 작업은 `clean_exports`의 책임이다.
+- 재량 규칙: 지역별 요청, 기간 분할, 페이지 반복, timeout은 구현자가 정한다.
 
-- 응답 및 출력:
-  - API 응답의 `item` 필드 이름은 명세에 없으므로 가정값을 코드에서 변환하지 않는다.
-  - 응답 필드(`year`, `sgguNm`, `hsSgn`, `expDlr` 등)는 원래 이름을 그대로 유지한다.
-  - 모든 수집 행에 실행일 `collected_at` 열을 추가한다.
-  - 응답 필드가 확정되면 `clean_exports`의 `RAW_COLUMN_MAP`에서만 이름을 매핑한다.
+### ② API 계약 설계
 
-- 처리 흐름:
-  1. `start_ym`, `end_ym`이 ASCII 숫자 기준 `YYYY-MM`인지 검증한다.
-  2. 시작월이 끝월보다 늦으면 `ValueError`를 발생시킨다.
-  3. `.env`의 `CUSTOMS_API_KEY`에서 공공데이터포털 일반 인증키(Decoding)를 읽는다.
-  4. API 키가 없거나 공백뿐이면 요청 전에 `RuntimeError`를 발생시킨다.
-  5. 대상 시도별로 조회 기간을 12개월 이하 구간으로 나누어 요청한다.
-  6. API가 제공하는 페이지 정보가 있으면 `totalCount`에 도달할 때까지 페이지를 요청한다.
-  7. 성공 응답의 `item`을 열 이름과 문자열 값을 유지한 dict 목록으로 수집한다.
-  8. 데이터 없음 응답은 빈 목록으로 처리하고 `collected_at` 열을 가진 빈 표를 반환한다.
-  9. 수집 결과를 DataFrame으로 만들고 `collected_at`을 추가한다.
+- API 주소와 요청 변수는 공공데이터포털 명세를 따른다.
+- 요청 변수는 `serviceKey`, `strtYymm`, `endYymm`, `HsSgn`, `sidoCd`이다.
+- `HsSgn`은 `854232`로 고정한다.
+- 이천시는 경기도 `41`, 청주시는 충청북도 `43`으로 요청한다.
+- 응답 필드(`year`, `sgguNm`, `hsSgn`, `expDlr` 등)는 가정값이므로 코드에서 이름을 바꾸지 않는다.
+- API 키는 `.env`의 `CUSTOMS_API_KEY`에서 읽으며 일반 인증키(Decoding)를 사용한다.
 
-- 오류 및 보안:
-  - HTTP 오류, 네트워크 오류, XML 형식 오류, API 오류 코드, 게이트웨이 오류를 명시적인 `RuntimeError`로 변환한다.
-  - 오류 메시지는 `관세청 API 호출 실패: <지역>, <원인>` 형식을 사용한다.
-  - URL, 인증키, `str(e)`를 오류 메시지에 포함하지 않는다.
-  - 예외 재발생 시 `from None`을 사용하여 원래 예외의 민감한 세부 정보가 노출되지 않도록 한다.
-  - 함수 전체를 감싸는 광범위한 `try/except`나 성공처럼 보이는 오류 반환은 사용하지 않는다.
+### ③ 6단계 정밀 프롬프트
 
-- 비고:
-  - 시도 코드, 12개월 제한, 페이지 변수 지원 여부 및 응답 필드 이름은 명세와 실제 응답 대조가 필요한 가정이다.
-  - Encoding 키가 아니라 공공데이터포털의 일반 인증키(Decoding)를 `.env`에 넣어야 한다. Encoding 키는 이중 인코딩되어 등록되지 않은 키(30)로 거부될 수 있다.
-
-### ② 정밀 프롬프트 재구성
-
-- 아래 프롬프트는 보존된 원문이 아니라 구현 결과와 명세에서 역추적한 재구성본이다.
-
-- 프롬프트:
+아래 프롬프트는 구현 가이드의 내용을 6단계로 나누어 작성한 최종 구현 프롬프트이다.
 
 ```text
-당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 데이터 적재 모듈(data_loader.py)에 관세청 API 원자료 수집 함수를 구현해 주세요.
+1단계 - 역할과 목표
+당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 data_loader.py에 관세청 원자료 수집 함수를 구현하세요. 함수는 이천시와 청주시의 HS 854232 월별 수출액 원자료를 수집하되, 후속 clean_exports가 처리할 수 있도록 원자료를 가공하지 않아야 합니다.
 
-[함수 시그니처, 변경 금지]
+2단계 - 함수 계약
+다음 시그니처를 변경하지 마세요.
+
 def fetch_regional_exports(start_ym: str, end_ym: str) -> pd.DataFrame:
 
-[API 명세]
-- 공공데이터포털 관세청 시군구별 품목별 수출입실적 XML API를 사용한다.
-- 요청 주소는 공공데이터포털 명세의 주소를 사용한다.
-- 요청 변수는 serviceKey, strtYymm, endYymm, HsSgn, sidoCd이다.
-- HsSgn은 "854232"로 고정한다.
-- 이천시는 시도 코드 "41", 청주시는 시도 코드 "43"으로 요청한다.
-- API 키는 .env의 CUSTOMS_API_KEY에서 읽는다. 일반 인증키(Decoding)를 사용한다.
+start_ym과 end_ym은 YYYY-MM 형식입니다. 반환값은 API 응답 item을 행으로 만든 pandas DataFrame입니다. API 응답의 열 이름과 값은 그대로 유지하고, 함수 실행일을 YYYY-MM-DD 형식의 collected_at 열로 추가하세요. 행이 없어도 collected_at 열을 가진 0행 DataFrame을 반환하세요.
 
-[입력 및 출력]
-- start_ym과 end_ym은 "YYYY-MM" 형식이어야 한다.
-- 반환값은 pandas DataFrame이다.
-- 응답 item의 필드 이름과 값은 변환하지 않고 그대로 유지한다.
-- 반환 표에 collected_at("YYYY-MM-DD") 열을 추가한다.
-- 데이터가 없으면 collected_at 열을 가진 빈 표를 반환한다.
+3단계 - API 요청 명세
+공공데이터포털 관세청 시군구별 품목별 수출입실적 XML API의 명세를 사용하세요. 요청 주소와 다음 요청 변수 이름을 파일 상수로 명확히 두세요: serviceKey, strtYymm, endYymm, HsSgn, sidoCd. HsSgn은 854232로 고정하고, 이천시는 시도 코드 41, 청주시는 시도 코드 43으로 요청하세요. serviceKey는 .env의 CUSTOMS_API_KEY에서 읽고 일반 인증키(Decoding)를 사용하세요.
 
-[수집 규칙]
-- 조회 기간을 최대 12개월 구간으로 나눈다.
-- 각 구간을 대상 시도별로 요청한다.
-- totalCount가 응답에 있으면 pageNo를 증가시켜 모든 페이지를 수집한다.
-- totalCount가 없거나 현재 페이지에 행이 없으면 해당 구간 수집을 종료한다.
-- 응답 필드 이름(year, sgguNm, hsSgn, expDlr 등)은 가정값이므로 함수에서 이름을 바꾸지 않는다.
-- 같은 시도 코드가 여러 지역에 매핑되면 같은 API 자료를 중복 요청하지 않는다.
+4단계 - 수집 흐름과 경계 조건
+월 입력을 먼저 검증하고, 형식이 틀리거나 시작월이 끝월보다 늦으면 ValueError를 발생시키세요. API 키가 없거나 공백뿐이면 관세청 요청 전에 RuntimeError("관세청 API 키가 없습니다")를 발생시키세요. 기간은 API의 12개월 제한을 고려해 YYYYMM 구간으로 나누고, 두 지역을 요청하세요. 응답에 totalCount와 페이지 정보가 있으면 마지막 페이지까지 수집하고, 같은 시도 코드가 중복되면 한 번만 요청하세요.
 
-[검증 및 오류 처리]
-- 월 형식 오류와 시작월>끝월 오류를 API 키 확인보다 먼저 검사한다.
-- API 키가 없거나 공백뿐이면 "관세청 API 키가 없습니다" RuntimeError를 발생시킨다.
-- 네트워크 오류, HTTP 오류, 비XML 응답, API 오류 코드, 게이트웨이 오류를 RuntimeError로 변환한다.
-- 오류 메시지는 "관세청 API 호출 실패: <지역>, <원인>" 형식을 사용한다.
-- URL, API 키, str(e)를 오류 메시지에 포함하지 않는다.
-- 민감한 원래 예외가 노출되지 않도록 필요한 예외 변환은 from None으로 처리한다.
+5단계 - 오류와 보안
+연결 오류, timeout, HTTP 오류, XML 형식 오류, API 응답 오류 코드, 게이트웨이 오류는 모두 RuntimeError로 변환하세요. 오류 메시지는 "관세청 API 호출 실패: <지역>, <원인>" 형식을 사용하세요. URL, API 키, str(e)의 원문을 오류 메시지에 포함하지 말고, 필요한 예외 변환에는 from None을 사용하세요. 광범위한 try/except로 오류를 삼키거나 성공처럼 보이는 빈 결과로 대체하지 마세요.
 
-[구현 제약]
-- Python 3.10 이상, pandas, requests, python-dotenv, 표준 라이브러리만 사용한다.
-- 타입 힌트와 한국어 docstring(설명, Args, Returns, Raises)을 작성한다.
-- 입력값을 임의로 정제하거나 응답 필드 이름을 변경하지 않는다.
-- 실제 API 호출 테스트에 의존하지 말고 requests를 mock할 수 있도록 보조 함수를 분리한다.
+6단계 - 구현 품질과 검증
+Python 3.10 이상에서 동작하도록 타입 힌트와 한국어 docstring(설명, Args, Returns, Raises)을 작성하세요. requests 호출과 XML 파싱을 보조 함수로 분리해 monkeypatch 가능한 구조로 만드세요. 응답 필드명을 매핑하거나 지역·결측 필터를 적용하지 마세요. 실제 API 키와 네트워크를 테스트에 사용하지 말고, 입력 검증·요청 파라미터·기간 분할·페이지 처리·응답 파싱·오류 메시지 보안·collected_at을 mock 기반 pytest로 검증하세요.
 ```
 
-### ③ AI 코드 생성
+### ④ 구현 결과
 
-- 생성 도구: GitHub Copilot
-- 생성 코드 파일: `hynix_nowcast/data_loader.py`
 - 공개 함수: `fetch_regional_exports`
 - 내부 보조 함수:
   - `_validate_months`
@@ -960,113 +913,48 @@ def fetch_regional_exports(start_ym: str, end_ym: str) -> pd.DataFrame:
   - `_parse_customs_page`
   - `_customs_api_error`
   - `_to_raw_exports_table`
+- 주요 상수: API 주소, API 키 환경변수 이름, HS 코드, 시도 코드, 12개월 제한, 페이지 크기, 성공·데이터 없음 코드, timeout, 결과 열 이름
 
-- 생성 코드의 주요 상수:
-  - `CUSTOMS_API_URL`
-  - `CUSTOMS_REGION_SIDO_CODES`
-  - `CUSTOMS_MAX_MONTHS_PER_REQUEST`
-  - `CUSTOMS_PAGE_SIZE`
-  - `CUSTOMS_MAX_PAGES`
-  - `CUSTOMS_SUCCESS_CODES`
-  - `CUSTOMS_NO_DATA_CODES`
+### ⑤ 코드 한 줄씩 점검 및 수정 내역
 
-- 생성된 코드를 그대로 최종 결과로 확정하지 않고, 함수별 코드 리딩과 mock 기반 테스트를 진행했다.
+`data_loader.py`를 import·상수·공개 함수·입력 검증·기간 분할·요청·응답 파싱·결과 변환 순서로 점검했다.
 
-### ④ 코드 리딩·검증
+1. 모듈 설명과 import
+   - import된 모듈은 API 요청, XML 파싱, 날짜 기록, DataFrame 생성에 사용된다.
+   - API 키는 환경변수에서만 읽으며 소스에 하드코딩하지 않는다.
+2. 상수와 API 계약
+   - API 주소, HS 코드, 시도 코드와 요청 제한을 상수로 분리했다.
+   - 기존 주석의 정의되지 않은 `ALLOWED_REGIONS` 참조를 `clean_exports` 설명으로 수정했다.
+3. `fetch_regional_exports`
+   - 월 검증 → API 키 확인 → 지역·기간별 요청 → 원자료 표 생성 순서가 요구사항과 일치한다.
+   - 응답 필터나 열 이름 변환을 하지 않고 `collected_at`만 추가한다.
+4. 입력·기간 처리
+   - ASCII `YYYY-MM`과 1~12월을 검증하고 역순 기간을 거부한다.
+   - 12개월 단위 분할과 연도 경계를 확인했다.
+5. 요청·오류 처리
+   - timeout, HTTP 상태, 네트워크 예외, XML 파싱 실패를 명시적 RuntimeError로 변환한다.
+   - 오류에는 URL, API 키, `str(e)` 원문을 넣지 않는다.
+   - 성공 코드인데 `<body>`가 없는 응답은 데이터 없음으로 오인하지 않도록 `응답 형식 오류` RuntimeError를 발생시키도록 수정했다.
+6. 응답·결과 처리
+   - `item`의 자식 태그를 원래 키로 유지하고 값이 없는 필드는 빈 문자열로 둔다.
+   - `totalCount`가 있으면 페이지를 반복하고, 없으면 첫 응답에서 종료한다.
+   - 데이터 없음 응답은 빈 행 목록으로 처리하되 `collected_at` 열은 유지한다.
 
-- 검토 자료:
-  - `hynix_nowcast/data_loader.py`
-  - `hynix_nowcast/test_data_loader.py`
-  - 공공데이터포털 API 요청 변수 및 오류 코드 요구사항
+### ⑥ 테스트와 기록
 
-- 점검 내용:
-  - 월 입력 검증이 API 키 확인 및 네트워크 요청보다 먼저 실행되는지 여부.
-  - Decoding 키만 사용하고 인증키가 오류 메시지에 노출되지 않는지 여부.
-  - 경기도와 충청북도 코드가 정확히 요청되는지 여부.
-  - 12개월 구간 분할과 연도 경계 처리가 정확한지 여부.
-  - 같은 시도 코드 중복 요청 방지 여부.
-  - `serviceKey`, `strtYymm`, `endYymm`, `HsSgn`, `sidoCd` 요청 변수 전달 여부.
-  - 성공, 데이터 없음, API 오류, 게이트웨이 오류, HTTP 오류, 비XML 응답 처리 여부.
-  - `totalCount` 기준 페이지 반복과 최대 페이지 안전장치 여부.
-  - 응답 열 이름과 문자열 값을 그대로 유지하는지 여부.
-  - `collected_at` 추가와 빈 응답 DataFrame의 형태.
-  - 광범위한 예외 처리, 민감정보 노출, 입력 데이터 변형 여부.
-
-#### 코드 리딩에서 확인한 사항
-
-1. 월 입력은 ASCII `YYYY-MM` 및 월 범위를 검증하고, 형식 검증 후 순서 검증을 수행한다.
-2. `CUSTOMS_API_KEY`가 없거나 공백이면 관세청 요청을 실행하지 않는다.
-3. `requests.get`에는 API URL, 요청 변수, 10초 timeout이 전달된다.
-4. 네트워크 예외는 예외 클래스명만, HTTP 예외는 상태 코드만 오류 메시지에 남긴다.
-5. XML 파싱 실패와 응답 코드 오류는 명시적인 RuntimeError로 처리한다.
-6. 응답 `item` 자식 태그를 그대로 dict 키로 만들며 필드명 매핑은 수행하지 않는다.
-7. 테스트는 실제 관세청 API를 호출하지 않고 `requests.get` 및 내부 수집 함수를 mock한다.
-
-#### 테스트 작성 및 실행
-
-- 테스트 파일: `hynix_nowcast/test_data_loader.py`
-- 테스트 개수: 18개
+- 테스트 파일: `신해성/test_data_loader.py`
+- 실제 관세청 API와 API 키는 사용하지 않고 mock으로 검증했다.
+- 성공 코드인데 body가 없는 응답을 거부하는 테스트를 추가했다.
 - 실행 명령:
 
 ```powershell
-python -m pytest -v .\hynix_nowcast\test_data_loader.py
+python -m pytest -v 신해성/test_data_loader.py
 ```
 
-- 실제 실행 결과:
+- 수정 후 결과: **19 passed**
+- 점검 항목: 월 입력·기간 분할, API 키, 요청 URL·변수·timeout, 시도 코드, XML 성공·오류 응답, 비정상 body, 페이지 반복, 원자료 열 보존, 민감정보 비노출
 
-```text
-collected 18 items
-
-hynix_nowcast/test_data_loader.py::test_validate_months_rejects_invalid_values PASSED [  5%]
-hynix_nowcast/test_data_loader.py::test_month_chunks_split_long_period PASSED [ 11%]
-hynix_nowcast/test_data_loader.py::test_parse_customs_page_returns_rows_and_total_count PASSED [ 16%]
-hynix_nowcast/test_data_loader.py::test_parse_customs_page_handles_no_data PASSED [ 22%]
-hynix_nowcast/test_data_loader.py::test_fetch_regional_exports_uses_mocked_rows PASSED [ 27%]
-hynix_nowcast/test_data_loader.py::test_to_raw_exports_table_preserves_fields PASSED [ 33%]
-hynix_nowcast/test_data_loader.py::test_validate_months_rejects_non_string PASSED [ 38%]
-hynix_nowcast/test_data_loader.py::test_validate_months_rejects_full_width_digits PASSED [ 44%]
-hynix_nowcast/test_data_loader.py::test_get_customs_api_key_rejects_missing_key PASSED [ 50%]
-hynix_nowcast/test_data_loader.py::test_get_customs_api_key_rejects_blank_key PASSED [ 55%]
-hynix_nowcast/test_data_loader.py::test_fetch_regional_exports_splits_each_region_into_12_month_chunks PASSED [ 61%]
-hynix_nowcast/test_data_loader.py::test_fetch_regional_exports_deduplicates_same_sido PASSED [ 66%]
-hynix_nowcast/test_data_loader.py::test_request_customs_xml_passes_expected_url_and_parameters PASSED [ 72%]
-hynix_nowcast/test_data_loader.py::test_request_customs_xml_hides_request_exception_details PASSED [ 77%]
-hynix_nowcast/test_data_loader.py::test_request_customs_xml_reports_http_status_without_url PASSED [ 83%]
-hynix_nowcast/test_data_loader.py::test_request_customs_xml_rejects_non_xml_response PASSED [ 88%]
-hynix_nowcast/test_data_loader.py::test_parse_customs_page_reports_api_error_code PASSED [ 94%]
-hynix_nowcast/test_data_loader.py::test_fetch_customs_rows_requests_next_page_until_total_count PASSED [100%]
-
-18 passed in 1.16s
-```
-
-| 테스트 | 확인 내용 | 결과 |
-|---|---|---|
-| `test_validate_months_rejects_invalid_values` | 잘못된 월 범위와 시작월·끝월 순서 검증 | PASSED |
-| `test_month_chunks_split_long_period` | 12개월 단위 조회 구간 분할 | PASSED |
-| `test_parse_customs_page_returns_rows_and_total_count` | 성공 XML의 item과 totalCount 파싱 | PASSED |
-| `test_parse_customs_page_handles_no_data` | 데이터 없음 코드 처리 | PASSED |
-| `test_fetch_regional_exports_uses_mocked_rows` | 지역별 수집 결과와 collected_at 생성 | PASSED |
-| `test_to_raw_exports_table_preserves_fields` | 응답 필드명 보존 및 표 변환 | PASSED |
-| `test_validate_months_rejects_non_string` | 비문자열 월 입력 거부 | PASSED |
-| `test_validate_months_rejects_full_width_digits` | 전각 숫자 월 입력 거부 | PASSED |
-| `test_get_customs_api_key_rejects_missing_key` | API 키 누락 오류 | PASSED |
-| `test_get_customs_api_key_rejects_blank_key` | 공백 API 키 오류 | PASSED |
-| `test_fetch_regional_exports_splits_each_region_into_12_month_chunks` | 지역별 12개월 구간 요청 | PASSED |
-| `test_fetch_regional_exports_deduplicates_same_sido` | 동일 시도 중복 요청 방지 | PASSED |
-| `test_request_customs_xml_passes_expected_url_and_parameters` | URL·요청 변수·timeout 전달 | PASSED |
-| `test_request_customs_xml_hides_request_exception_details` | 네트워크 오류에서 키와 상세정보 비노출 | PASSED |
-| `test_request_customs_xml_reports_http_status_without_url` | HTTP 상태 코드만 오류에 포함 | PASSED |
-| `test_request_customs_xml_rejects_non_xml_response` | 비XML 응답 거부 | PASSED |
-| `test_parse_customs_page_reports_api_error_code` | API 오류 코드와 메시지 처리 | PASSED |
-| `test_fetch_customs_rows_requests_next_page_until_total_count` | totalCount 기준 페이지 반복 | PASSED |
-
-- 테스트 결과: **pytest 18 passed in 1.16s**
-- 실제 관세청 API 키와 네트워크를 사용하지 않은 mock 기반 검증이다.
-
-- 비고:
-  1. 응답 필드 이름과 시도 코드·12개월 한도·페이지 변수 지원 여부는 공공데이터포털 명세 및 실제 응답으로 최종 확인해야 한다.
-  2. API 키는 `.env`에 저장하며 소스 코드나 테스트 코드에 하드코딩하지 않는다.
-  3. 현재 테스트는 함수의 입력 검증·요청 구성·응답 파싱·오류 보호를 검증하며, 실제 API 서버의 응답 호환성까지 보장하지는 않는다.
+- 비고: 실제 API 응답 필드 이름, 시도 코드, 12개월 제한, 페이지 변수 지원 여부는 공공데이터포털 명세와 실제 응답으로 최종 확인해야 한다.
 
 ---
 

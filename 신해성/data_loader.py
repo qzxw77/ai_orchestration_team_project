@@ -26,8 +26,8 @@ CUSTOMS_API_URL: str = (
 CUSTOMS_API_KEY_ENV: str = "CUSTOMS_API_KEY"  # 공공데이터포털 "일반 인증키(Decoding)" 값을 넣는다
 CUSTOMS_API_ERROR_PREFIX: str = "관세청 API 호출 실패"
 CUSTOMS_HS_CODE: str = "854232"  # 메모리 반도체 (HS 6단위)
-# 대상 지역 -> 그 지역이 속한 시도 코드. API가 시도 단위로만 요청을 받으므로 시도별로 받고,
-# 이천시, 청주시만 남기는 일은 clean_exports(ALLOWED_REGIONS)가 한다.
+# 대상 지역 -> 그 지역이 속한 시도 코드. API가 시도 단위로만 요청을 받으므로 시도별로 받는다.
+# 이천시, 청주시만 남기는 일은 clean_exports에서 한다.
 # [확인 필요] 관세청조회코드 xlsx의 시도 코드. 2026-07-01부터 일부 시군구 코드가 바뀌었다고 공지됨
 CUSTOMS_REGION_SIDO_CODES: dict[str, str] = {"이천시": "41", "청주시": "43"}
 CUSTOMS_MAX_MONTHS_PER_REQUEST: int = 12  # [확인 필요] 명세 예시가 12개월 범위
@@ -289,11 +289,15 @@ def _parse_customs_page(
         result_message: str = (root.findtext("./header/resultMsg") or "").strip()
         raise _customs_api_error(region, f"{result_code} {result_message}".strip())
 
+    body = root.find("./body")
+    if body is None:
+        raise _customs_api_error(region, CUSTOMS_FORMAT_ERROR_REASON)
+
     page_rows: list[dict[str, str]] = [
         {child.tag: child.text or "" for child in item}
-        for item in root.findall("./body/items/item")
+        for item in body.findall("./items/item")
     ]
-    total_text: str = (root.findtext("./body/totalCount") or "").strip()
+    total_text: str = (body.findtext("./totalCount") or "").strip()
     total_count: int | None = int(total_text) if total_text.isdecimal() else None
     return page_rows, total_count
 
