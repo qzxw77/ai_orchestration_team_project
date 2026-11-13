@@ -1041,6 +1041,82 @@ python -m pytest -v ShinHaesung/test_preprocess.py ShinHaesung/test_data_loader.
   검증 결과를 기록했다.
 
 ---
+
+### [preprocess] aggregate_quarterly 계약 보완 및 코드 리뷰 수정 (2026-11-13, 작성자: 신해성)
+
+- 사용 도구: GitHub Copilot, pytest
+- 참고 문서: `docs/schema.md`의 표 스키마, 공통 오류 규칙, 함수별 입출력 계약
+- 대상 파일: `신해성/preprocess.py`
+
+#### 프롬프트
+
+```text
+팀 표준 스키마 docs/schema.md를 기준으로 preprocess.py의
+aggregate_quarterly 함수가 모듈 경계의 데이터 계약을 지키는지 점검해 주세요.
+입력은 exports 표와 fx 표이고, 반환값은
+quarter, export_usd, months_available, fx_avg 열을 이 순서로 가진 DataFrame이어야 합니다.
+타입 힌트와 한국어 docstring의 Args, Returns, Raises를 확인하고,
+코드가 계약과 다르면 최소한으로 수정해 주세요.
+
+지역은 이천시와 청주시만 사용하고, HS 코드는 854232인 행만 집계하세요.
+hs_code가 결측이거나 다른 품목인 행은 제외해야 합니다.
+환율 평균을 계산할 때 결측값, 0 이하, 양의 무한대와 음의 무한대를 제외하세요.
+입력 DataFrame은 직접 수정하지 말고 복사본으로 처리하세요.
+리뷰 피드백 중 현재 파일에 재현되는 문제만 수용하고,
+재현되지 않거나 다른 모듈에 해당하는 문제는 보류 이유를 기록하세요.
+수정 후 preprocess 및 data_loader 테스트를 pytest -v로 실행하세요.
+```
+
+#### 코드 리딩에서 확인한 내용
+
+1. `preprocess.py` 1행의 문법 오류는 현재 버전에서 재현되지 않았다.
+   정상적인 모듈 docstring으로 시작하며 pytest 수집과 import가 성공한다.
+2. `extract_guidance`와 `_call_llm`은 현재 신해성의 `preprocess.py`에
+   존재하지 않는다. 따라서 해당 피드백은 이 파일의 수정 대상으로 보류했다.
+3. `aggregate_quarterly`가 지역만 확인하고 `hs_code`를 확인하지 않아
+   다른 품목이나 결측 품목이 수출액에 포함될 수 있었다.
+4. 환율을 바로 평균내어 0 이하, NaN, 양·음의 무한대가 평균에 영향을 줄
+   가능성이 있었다.
+5. `_empty_quarterly_table`의 docstring에 반환 형식과 `Raises`가 없어
+   팀 표준의 함수별 반환 계약을 충분히 설명하지 못했다.
+
+#### 수정 내역
+
+| 번호 | 파일·줄 | 수정 전 | 수정 후 | 이유 |
+|---|---|---|---|---|
+| 1 | `preprocess.py:3` | `pandas`만 import | `math`를 추가 import | `math.isfinite`로 환율의 양·음의 무한대를 명시적으로 제외하기 위해 추가했다. |
+| 2 | `preprocess.py:29-40` | `_empty_quarterly_table`에 한 줄 docstring만 존재 | 반환 열, 순서, 타입, `Raises: 없음`을 docstring에 명시 | 빈 결과도 팀 표준 스키마와 반환 계약을 설명하도록 보완했다. |
+| 3 | `preprocess.py:60-68` | 반환 열 이름만 설명 | 각 열의 타입과 제외 규칙을 `Returns`에 명시 | 함수가 돌려주는 DataFrame의 구체적인 형식과 필터 규칙을 문서화했다. |
+| 4 | `preprocess.py:75-78` | 지역만 필터링: `region.isin(ALLOWED_REGIONS)` | 지역과 HS 코드를 함께 필터링: `hs_code == "854232"` | 타 품목 및 결측 HS 코드가 과대 집계되는 문제를 수정했다. |
+| 5 | `preprocess.py:107-125` | `usdkrw`를 바로 분기 평균에 사용 | 숫자 변환 후 결측·0 이하·무한대를 제거하고 평균 계산 | 유효하지 않은 환율이 `fx_avg`에 들어가는 것을 방지했다. |
+| 6 | `test_preprocess.py:59-81` | 해당 경계 테스트 없음 | `test_filters_non_target_hs_codes_and_invalid_exchange_rates` 추가 | 타 품목, 결측 HS 코드, 0, 음수, 무한대, NaN 환율 필터를 회귀 검증한다. |
+
+#### 피드백 수용 및 보류 판단
+
+| 피드백 | 판단 | 이유 |
+|---|---|---|
+| `preprocess.py` 문법 오류로 import 불가 | 보류 | 2026-11-13 현재 파일에서 SyntaxError가 재현되지 않았고 pytest 수집이 성공했다. |
+| `extract_guidance`의 `_call_llm` 미정의 | 보류 | 현재 신해성 `preprocess.py`에는 두 함수가 모두 없어 대상 모듈의 문제로 확인되지 않았다. |
+| 환율 필터가 양의 무한대를 거르지 않음 | 수용 | `math.isfinite`와 양수 조건을 적용해 NaN·무한대·0 이하를 모두 제외했다. |
+| `hs_code` 결측·타 품목 행이 과대 집계될 수 있음 | 수용 | `hs_code == "854232"` 조건을 추가해 대상 품목만 집계하도록 수정했다. |
+
+#### 테스트 결과
+
+```text
+신해성/test_preprocess.py: 4 passed
+신해성/test_data_loader.py: 19 passed
+전체: 23 passed in 0.99s
+```
+
+- 모든 data_loader 외부 API 요청은 mock으로 대체했다.
+- 실제 API 키와 네트워크 요청은 사용하지 않았다.
+
+#### 커밋
+
+- 코드·테스트·README 수정 커밋: `e141087 fix: enforce module data contracts`
+- 이 기록은 위 커밋의 `preprocess.py` 수정사항과 리뷰 판단을 설명한다.
+
+---
 ---
 
 ## 이다현
