@@ -52,3 +52,26 @@ def test_empty_and_negative_lag():
 
     with pytest.raises(ValueError):
         aggregate_quarterly(empty_df, fx, lag_months=-1)
+
+
+def test_filters_non_target_hs_codes_and_invalid_exchange_rates():
+    exports = pd.DataFrame(
+        {
+            "ym": ["2026-01"] * 4,
+            "region": ["이천시", "청주시", "이천시", "청주시"],
+            "hs_code": ["854232", "854232", "854231", None],
+            "export_usd": [100.0, 50.0, 900.0, 800.0],
+            "collected_at": ["2026-02-15"] * 4,
+        }
+    )
+    fx = pd.DataFrame(
+        {
+            "date": ["2026-01-10"] * 5,
+            "usdkrw": [1400.0, 0.0, -1.0, float("inf"), float("nan")],
+        }
+    )
+
+    result = aggregate_quarterly(exports, fx)
+
+    assert result.loc[0, "export_usd"] == 150.0
+    assert result.loc[0, "fx_avg"] == 1400.0
