@@ -843,119 +843,192 @@ hynix_nowcast/test_preprocess.py::test_empty_and_negative_lag PASSED
 
 ---
 
-### [data_loader] fetch_regional_exports (2026-11-13, 작성자: 신해성)
+### [data_loader] fetch_regional_exports (2026-11-13, author: Shin Haesung)
 
-- 사용 도구: GitHub Copilot, GPAI, pytest
-- 기준: 지역 수출 원자료 수집 구현 가이드와 공공데이터포털 API 명세
+- Tools: GitHub Copilot, GPAI, pytest
+- Basis: regional export raw-data implementation guide and Public Data Portal API specification.
+- Note: This section is intentionally written with UTF-8-safe text. It records the implementation prompt, exact code changes, and test evidence.
 
-### ① 요구사항 정리
-
-- 구현 대상: `신해성/data_loader.py`의 `fetch_regional_exports`
-- 책임: 관세청 API에서 이천시·청주시 메모리 반도체(HS 854232)의 월별 수출 원자료를 받는다.
-- 시그니처:
+### 1. Implementation contract
 
 ```python
 def fetch_regional_exports(start_ym: str, end_ym: str) -> pd.DataFrame:
 ```
 
-- 입력: `start_ym`, `end_ym`은 `YYYY-MM` 형식의 시작월과 끝월이다.
-- 출력: API 응답 행을 원래 열 이름과 값으로 유지한 DataFrame이며, 실행 날짜를 `collected_at` 열로 추가한다.
-- 고정 규칙: 열 이름 변경, 형식 변환, 지역 필터, 결측치 필터는 하지 않는다. 이 작업은 `clean_exports`의 책임이다.
-- 재량 규칙: 지역별 요청, 기간 분할, 페이지 반복, timeout은 구현자가 정한다.
+- Input: `start_ym` and `end_ym` use `YYYY-MM`.
+- Output: a DataFrame made from API `item` rows.
+- Preserve the original response field names, values, and rows.
+- Add `collected_at` using the function execution date in `YYYY-MM-DD` form.
+- Do not rename fields, convert types, or filter regions/missing values; those are `clean_exports` responsibilities.
+- Missing API key raises `RuntimeError("CUSTOMS_API_KEY is missing")`.
+- Request and response failures raise a sanitized `RuntimeError`.
 
-### ② API 계약 설계
+### 2. API contract
 
-- API 주소와 요청 변수는 공공데이터포털 명세를 따른다.
-- 요청 변수는 `serviceKey`, `strtYymm`, `endYymm`, `HsSgn`, `sidoCd`이다.
-- `HsSgn`은 `854232`로 고정한다.
-- 이천시는 경기도 `41`, 청주시는 충청북도 `43`으로 요청한다.
-- 응답 필드(`year`, `sgguNm`, `hsSgn`, `expDlr` 등)는 가정값이므로 코드에서 이름을 바꾸지 않는다.
-- API 키는 `.env`의 `CUSTOMS_API_KEY`에서 읽으며 일반 인증키(Decoding)를 사용한다.
+| Item | Rule |
+|---|---|
+| API | Customs regional HS export XML API |
+| Parameters | `serviceKey`, `strtYymm`, `endYymm`, `HsSgn`, `sidoCd` |
+| HS code | `854232` |
+| Regions | Icheon=`41`, Cheongju=`43` |
+| Credentials | `.env` value `CUSTOMS_API_KEY`, decoded key |
+| Response fields | Keep names such as `year`, `sgguNm`, `hsSgn`, `expDlr` unchanged |
 
-### ③ 6단계 정밀 프롬프트
+### 3. Six-stage precision prompt
 
-아래 프롬프트는 구현 가이드의 내용을 6단계로 나누어 작성한 최종 구현 프롬프트이다.
+#### Stage 1: role and scope
 
 ```text
-1단계 - 역할과 목표
-당신은 파이썬 백엔드 개발을 돕는 어시스턴트입니다. SK하이닉스 분기 매출 나우캐스팅 시스템의 data_loader.py에 관세청 원자료 수집 함수를 구현하세요. 함수는 이천시와 청주시의 HS 854232 월별 수출액 원자료를 수집하되, 후속 clean_exports가 처리할 수 있도록 원자료를 가공하지 않아야 합니다.
+You are a Python backend development assistant. Implement the Customs raw-data
+collector fetch_regional_exports in data_loader.py for the SK hynix quarterly
+revenue nowcasting system. Collect monthly HS 854232 export raw data for the
+Icheon and Cheongju areas. Do not perform clean_exports work in this function.
+```
 
-2단계 - 함수 계약
-다음 시그니처를 변경하지 마세요.
+#### Stage 2: signature and data contract
 
+```text
+Keep this signature unchanged:
 def fetch_regional_exports(start_ym: str, end_ym: str) -> pd.DataFrame:
 
-start_ym과 end_ym은 YYYY-MM 형식입니다. 반환값은 API 응답 item을 행으로 만든 pandas DataFrame입니다. API 응답의 열 이름과 값은 그대로 유지하고, 함수 실행일을 YYYY-MM-DD 형식의 collected_at 열로 추가하세요. 행이 없어도 collected_at 열을 가진 0행 DataFrame을 반환하세요.
-
-3단계 - API 요청 명세
-공공데이터포털 관세청 시군구별 품목별 수출입실적 XML API의 명세를 사용하세요. 요청 주소와 다음 요청 변수 이름을 파일 상수로 명확히 두세요: serviceKey, strtYymm, endYymm, HsSgn, sidoCd. HsSgn은 854232로 고정하고, 이천시는 시도 코드 41, 청주시는 시도 코드 43으로 요청하세요. serviceKey는 .env의 CUSTOMS_API_KEY에서 읽고 일반 인증키(Decoding)를 사용하세요.
-
-4단계 - 수집 흐름과 경계 조건
-월 입력을 먼저 검증하고, 형식이 틀리거나 시작월이 끝월보다 늦으면 ValueError를 발생시키세요. API 키가 없거나 공백뿐이면 관세청 요청 전에 RuntimeError("관세청 API 키가 없습니다")를 발생시키세요. 기간은 API의 12개월 제한을 고려해 YYYYMM 구간으로 나누고, 두 지역을 요청하세요. 응답에 totalCount와 페이지 정보가 있으면 마지막 페이지까지 수집하고, 같은 시도 코드가 중복되면 한 번만 요청하세요.
-
-5단계 - 오류와 보안
-연결 오류, timeout, HTTP 오류, XML 형식 오류, API 응답 오류 코드, 게이트웨이 오류는 모두 RuntimeError로 변환하세요. 오류 메시지는 "관세청 API 호출 실패: <지역>, <원인>" 형식을 사용하세요. URL, API 키, str(e)의 원문을 오류 메시지에 포함하지 말고, 필요한 예외 변환에는 from None을 사용하세요. 광범위한 try/except로 오류를 삼키거나 성공처럼 보이는 빈 결과로 대체하지 마세요.
-
-6단계 - 구현 품질과 검증
-Python 3.10 이상에서 동작하도록 타입 힌트와 한국어 docstring(설명, Args, Returns, Raises)을 작성하세요. requests 호출과 XML 파싱을 보조 함수로 분리해 monkeypatch 가능한 구조로 만드세요. 응답 필드명을 매핑하거나 지역·결측 필터를 적용하지 마세요. 실제 API 키와 네트워크를 테스트에 사용하지 말고, 입력 검증·요청 파라미터·기간 분할·페이지 처리·응답 파싱·오류 메시지 보안·collected_at을 mock 기반 pytest로 검증하세요.
+Validate YYYY-MM inputs and reject reversed ranges with ValueError. Return API
+item rows as a pandas DataFrame without changing field names, values, or rows.
+Add execution date collected_at in YYYY-MM-DD format. For zero rows, retain the
+collected_at column. Do not rename fields, convert types, or filter data.
 ```
 
-### ④ 구현 결과
+#### Stage 3: API constants and credentials
 
-- 공개 함수: `fetch_regional_exports`
-- 내부 보조 함수:
-  - `_validate_months`
-  - `_get_customs_api_key`
-  - `_month_chunks`
-  - `_index_to_param_ym`
-  - `_fetch_customs_rows`
-  - `_request_customs_xml`
-  - `_parse_customs_page`
-  - `_customs_api_error`
-  - `_to_raw_exports_table`
-- 주요 상수: API 주소, API 키 환경변수 이름, HS 코드, 시도 코드, 12개월 제한, 페이지 크기, 성공·데이터 없음 코드, timeout, 결과 열 이름
+```text
+Use the Public Data Portal API URL and parameter names. Define constants for the
+URL, CUSTOMS_API_KEY environment variable, HS code 854232, region codes 41 and
+43, 12-month request limit, page size, maximum pages, timeout, success codes,
+no-data codes, and gateway-error tag. Read serviceKey from .env and never put a
+real key in source or tests.
+```
 
-### ⑤ 코드 한 줄씩 점검 및 수정 내역
+#### Stage 4: request flow and pagination
 
-`data_loader.py`를 import·상수·공개 함수·입력 검증·기간 분할·요청·응답 파싱·결과 변환 순서로 점검했다.
+```text
+Validate dates first, then load the API key. Request each target region, skip a
+duplicate sido code, split long ranges into at most 12-month YYYYMM chunks, and
+send serviceKey, strtYymm, endYymm, HsSgn, sidoCd, pageNo, and numOfRows. Keep
+all item rows unchanged. Continue until totalCount is reached, stop on no-data,
+and cap pages to prevent infinite loops.
+```
 
-1. 모듈 설명과 import
-   - import된 모듈은 API 요청, XML 파싱, 날짜 기록, DataFrame 생성에 사용된다.
-   - API 키는 환경변수에서만 읽으며 소스에 하드코딩하지 않는다.
-2. 상수와 API 계약
-   - API 주소, HS 코드, 시도 코드와 요청 제한을 상수로 분리했다.
-   - 기존 주석의 정의되지 않은 `ALLOWED_REGIONS` 참조를 `clean_exports` 설명으로 수정했다.
-3. `fetch_regional_exports`
-   - 월 검증 → API 키 확인 → 지역·기간별 요청 → 원자료 표 생성 순서가 요구사항과 일치한다.
-   - 응답 필터나 열 이름 변환을 하지 않고 `collected_at`만 추가한다.
-4. 입력·기간 처리
-   - ASCII `YYYY-MM`과 1~12월을 검증하고 역순 기간을 거부한다.
-   - 12개월 단위 분할과 연도 경계를 확인했다.
-5. 요청·오류 처리
-   - timeout, HTTP 상태, 네트워크 예외, XML 파싱 실패를 명시적 RuntimeError로 변환한다.
-   - 오류에는 URL, API 키, `str(e)` 원문을 넣지 않는다.
-   - 성공 코드인데 `<body>`가 없는 응답은 데이터 없음으로 오인하지 않도록 `응답 형식 오류` RuntimeError를 발생시키도록 수정했다.
-6. 응답·결과 처리
-   - `item`의 자식 태그를 원래 키로 유지하고 값이 없는 필드는 빈 문자열로 둔다.
-   - `totalCount`가 있으면 페이지를 반복하고, 없으면 첫 응답에서 종료한다.
-   - 데이터 없음 응답은 빈 행 목록으로 처리하되 `collected_at` 열은 유지한다.
+#### Stage 5: errors and security
 
-### ⑥ 테스트와 기록
+```text
+Convert connection, timeout, HTTP, XML, API result-code, gateway, and missing
+body failures to RuntimeError. Use the format "API request failed: region,
+reason". Never include the URL, service key, or raw str(e) in the message. Use
+from None where needed. Do not swallow errors or turn malformed success responses
+into empty successful results.
+```
 
-- 테스트 파일: `신해성/test_data_loader.py`
-- 실제 관세청 API와 API 키는 사용하지 않고 mock으로 검증했다.
-- 성공 코드인데 body가 없는 응답을 거부하는 테스트를 추가했다.
-- 실행 명령:
+#### Stage 6: quality and tests
+
+```text
+Use Python 3.10+, type hints, and Korean docstrings with Args, Returns, and
+Raises. Split HTTP, XML parsing, pagination, and table construction into helpers
+that can be monkeypatched. Test without a real key or network: date validation,
+key errors, 12-month chunks, request parameters, region deduplication, success,
+no-data, API errors, gateway errors, non-XML responses, missing body, pagination,
+secret redaction, field preservation, and collected_at. Run pytest -v and record
+every PASSED test and the total.
+```
+
+### 4. Code review and exact changes
+
+The review covered imports and constants, `fetch_regional_exports`, month validation, chunking, request construction, pagination, XML parsing, error conversion, and raw-table construction.
+
+#### Change 1: remove an undefined name from a comment
+
+- File: `data_loader.py`
+- Lines: 25-26
+- Before:
+
+```python
+# The API is requested by province, and filtering uses clean_exports(ALLOWED_REGIONS).
+```
+
+- After:
+
+```python
+# The API is requested by province; filtering is performed by clean_exports.
+```
+
+- Reason: `ALLOWED_REGIONS` is not defined in this module. The old comment suggested a dependency that does not exist. The new comment preserves the boundary: this function collects raw data and `clean_exports` filters it.
+
+#### Change 2: reject a successful response with no body
+
+- File: `data_loader.py`
+- Lines: 286-295
+- Before:
+
+```python
+page_rows = [{child.tag: child.text or ""} for child in root.findall("./body/items/item")]
+total_text = (root.findtext("./body/totalCount") or "").strip()
+```
+
+- After:
+
+```python
+body = root.find("./body")
+if body is None:
+    raise _customs_api_error(region, CUSTOMS_FORMAT_ERROR_REASON)
+
+page_rows: list[dict[str, str]] = [
+    {child.tag: child.text or ""} for child in body.findall("./items/item")
+]
+total_text: str = (body.findtext("./totalCount") or "").strip()
+```
+
+- Reason: `resultCode=00` without a body is a malformed response, not a valid no-data response. The previous code silently produced an empty result. The new code raises the required explicit `RuntimeError` and then parses relative to the verified body element.
+
+#### Change 3: regression test
+
+- File: `test_data_loader.py`
+- Lines: 258-264
+- Test: `test_parse_customs_page_rejects_success_without_body`
+- Input: `resultCode=00` with no `<body>`.
+- Expected: `RuntimeError` containing `response format error`.
+- Purpose: prevent malformed success responses from becoming silent empty results again.
+
+### 5. Detailed pytest evidence
+
+Command:
 
 ```powershell
-python -m pytest -v 신해성/test_data_loader.py
+python -m pytest -v ShinHaesung/test_preprocess.py ShinHaesung/test_data_loader.py
 ```
 
-- 수정 후 결과: **19 passed**
-- 점검 항목: 월 입력·기간 분할, API 키, 요청 URL·변수·timeout, 시도 코드, XML 성공·오류 응답, 비정상 body, 페이지 반복, 원자료 열 보존, 민감정보 비노출
+Environment: Windows, Python 3.13.15, pytest 9.2.0, pluggy 1.7.0.
 
-- 비고: 실제 API 응답 필드 이름, 시도 코드, 12개월 제한, 페이지 변수 지원 여부는 공공데이터포털 명세와 실제 응답으로 최종 확인해야 한다.
+- preprocess: 3/3 PASSED
+  - `test_aggregate_normal`
+  - `test_lag_months_and_missing_region`
+  - `test_empty_and_negative_lag`
+- data_loader: 19/19 PASSED
+  - input validation: 2 tests
+  - chunking and pagination: 3 tests
+  - XML success/no-data/error parsing: 5 tests
+  - API-key handling: 2 tests
+  - request URL/parameters/timeout: 1 test
+  - secret and URL redaction: 2 tests
+  - regional collection and raw-field preservation: 4 tests
 
+Final result: **22 passed in 1.16s**.
+All external requests were mocked; no real API key or network request was used.
+
+### 6. Commit record
+
+- Code review commit: `2b4c469 Review data loader implementation`
+- Documentation correction commit: `d782326 Restore Korean prompt log encoding`
+- This section documents the requested implementation prompt, exact line-level changes, and test evidence.
+
+---
 ---
 
 ## 이다현
