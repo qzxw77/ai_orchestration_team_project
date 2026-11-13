@@ -56,13 +56,22 @@ hynix_nowcast/test_data_loader.py::test_fetch_customs_rows_requests_next_page_un
 
 ### 1조 코드 리뷰 피드백 판단
 
-| 피드백 | 판단 | 확인·수정 내용 |
-|---|---|---|
-| `preprocess.py` 1행 문법 오류로 import 불가 | 보류(현재 재현되지 않음) | 2026-11-13 현재 파일 1행은 정상적인 모듈 docstring이며 `python -m pytest` 수집이 성공했다. |
-| `extract_guidance`의 `_call_llm` 미정의 | 보류(대상 아님) | 현재 신해성 `preprocess.py`에는 `extract_guidance`가 없고, `_call_llm`을 호출하는 코드도 없다. |
-| 환율 필터가 양의 무한대를 거르지 않음 | 수용 및 수정 | 2026-11-13 `preprocess.py`에서 `pd.to_numeric`, `math.isfinite`, `> 0` 조건으로 결측·0 이하·무한대를 제거한 뒤 평균을 계산하도록 수정했다. |
-| `hs_code` 결측·타 품목 행이 과대 집계될 수 있음 | 수용 및 수정 | 2026-11-13 `aggregate_quarterly`에서 `hs_code == "854232"`인 행만 집계하도록 수정했다. |
-| `docs/schema.md`의 import 오류 표시 | 보류(표시 유지) | 과거 리뷰 이력을 보존했다. 현재 파일은 import 가능하므로 후속 문서 정리에서 상태를 갱신할 수 있다. |
+| 피드백 | 판단 | 확인·수정 내용 | 관련 커밋 |
+|---|---|---|---|
+| `preprocess.py` 1행 문법 오류로 import 불가 | 보류(현재 재현되지 않음) | 2026-11-13 현재 파일 1행은 정상적인 모듈 docstring이며 `python -m pytest` 수집이 성공했다. | `e141087` |
+| `extract_guidance`의 `_call_llm` 미정의 | 보류(대상 아님) | 현재 신해성 `preprocess.py`에는 `extract_guidance`가 없고, `_call_llm`을 호출하는 코드도 없다. | `e141087` |
+| 환율 필터가 양의 무한대를 거르지 않음 | 수용 및 수정 | 2026-11-13 `preprocess.py`에서 `pd.to_numeric`, `math.isfinite`, `> 0` 조건으로 결측·0 이하·무한대를 제거한 뒤 평균을 계산하도록 수정했다. | `e141087` |
+| `hs_code` 결측·타 품목 행이 과대 집계될 수 있음 | 수용 및 수정 | 2026-11-13 `aggregate_quarterly`에서 `hs_code == "854232"`인 행만 집계하도록 수정했다. | `e141087` |
+| `docs/schema.md`의 import 오류 표시 | 보류(표시 유지) | 과거 리뷰 이력을 보존했다. 현재 파일은 import 가능하므로 후속 문서 정리에서 상태를 갱신할 수 있다. | `006d3b0` |
+
+### 피드백 반영 커밋 요약
+
+| 날짜 | 피드백 | 판단과 이유 | 관련 커밋 |
+|---|---|---|---|
+| 2026-11-13 | 환율 필터에서 양의 무한대가 제외되지 않음 | **수용** — `math.isfinite`와 `usdkrw > 0` 검사를 추가해 NaN, 양·음의 무한대, 0 이하 값을 평균에서 제외했다. 잘못된 환율이 `fx_avg`를 오염시킬 수 있어 수정했다. | `e141087 fix: enforce module data contracts` |
+| 2026-11-13 | `hs_code` 결측·타 품목 행이 수출액에 포함될 수 있음 | **수용** — `hs_code == "854232"` 조건을 추가했다. 다른 품목이 합산되면 메모리 반도체 수출액이 과대 집계될 수 있어 수정했다. | `e141087 fix: enforce module data contracts` |
+| 2026-11-13 | `preprocess.py` 1행 문법 오류로 import 불가 | **보류** — 현재 파일에서 SyntaxError가 재현되지 않고 pytest 수집도 성공했다. 과거 리뷰 이력은 유지하되 코드는 변경하지 않았다. | `006d3b0 docs: record preprocess contract fixes` |
+| 2026-11-13 | `extract_guidance`의 `_call_llm` 미정의 | **보류** — 해당 함수와 호출이 신해성 `preprocess.py`에 없어 이 모듈의 수정 범위가 아니다. | `006d3b0 docs: record preprocess contract fixes` |
 
 ### 검증 결과
 
