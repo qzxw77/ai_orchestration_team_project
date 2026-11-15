@@ -3,7 +3,7 @@
 - 대상: `신해성/data_loader.py`, `신해성/preprocess.py`,
   `신해성/test_data_loader.py`, `신해성/test_preprocess.py`,
   `ai_log/haesung_*.md`
-- 점검일: 2026-11-15
+- 점검일: 2026-11-15 (10주차 과제)
 - 판정: 예 / 해당 없음
 
 | 구분 | 번호 | 점검 항목 | 판정 | 근거 |
