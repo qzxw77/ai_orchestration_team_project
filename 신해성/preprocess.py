@@ -6,6 +6,7 @@ import pandas as pd
 
 
 ALLOWED_REGIONS: tuple[str, ...] = ("이천시", "청주시")
+TARGET_HS_CODE: str = "854232"
 QUARTERLY_COLUMNS: tuple[str, ...] = (
     "quarter",
     "export_usd",
@@ -77,7 +78,7 @@ def aggregate_quarterly(
     exports = exports_df.copy()
     target_exports = exports[
         exports["region"].isin(ALLOWED_REGIONS)
-        & exports["hs_code"].eq("854232")
+        & exports["hs_code"].eq(TARGET_HS_CODE)
     ].copy()
 
     region_counts = target_exports.groupby("ym")["region"].nunique()
