@@ -1,0 +1,6 @@
+pandas>=2.1
+requests>=2.31
+python-dotenv>=1.0
+anthropic>=1.0
+pytest>=8.0
+# 11주차 화면(app.py)을 만들 때 추가: streamlit
