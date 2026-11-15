@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALT 실적 리포트 시안</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* Layout: Streamlit-style two-pane app. Left sidebar = menu + view mode, right main = one page at a time (upload / report). White theme only. */
+:root{
+  --bg:#F6F7FA; --surface:#FFFFFF; --side:#EFF1F5; --fg:#1E2533; --sub:#667085; --line:#E3E6EC;
+  --navy:#14294A; --navy-fg:#FFFFFF; --navy-sub:#C9D4E6; --navy-eyebrow:#93B4E8; --navy-chip:#2E4468;
+  --amber:#F5B841; --amber-ink:#4A3305;
+  --accent:#E8484B; --accent-soft:#FDECEC; --blue:#2563EB; --blue-soft:#E7EEFC; --blue-2:#93C5FD;
+  --good:#0E8A6B; --good-soft:#E2F3EC; --bad:#C2410C; --bad-soft:#FCEBDD; --muted:#B4BAC5; --ph1:#FFFFFF; --ph2:#F6F7F9;
+  --tag-bk:#0E7490; --tag-ss:#7C3AED; --bar-grey:#94A3B8;
+  --font:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
+  color-scheme:light; /* 화이트 테마 고정: 기기·Claude가 다크 모드여도 밝은 화면 유지 */
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;margin:0}
+button,select,input{font-family:inherit}
+.app{display:flex;min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;width:300px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);
+  padding-block:24px;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:20px;display:flex;flex-direction:column;gap:22px}
+.brand{font-weight:700;font-size:16px;display:flex;flex-direction:column;gap:2px}
+.brand small{font-weight:400;color:var(--sub);font-size:12px}
+.sgroup{display:flex;flex-direction:column;gap:8px}
+.sgroup h3{margin:0;font-size:12px;letter-spacing:.06em;color:var(--sub);font-weight:700;display:flex;align-items:center;gap:6px}
+.opts{display:flex;flex-direction:column;gap:4px}
+.opts button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;font-size:14px;color:var(--fg)}
+.opts button:hover{background:var(--surface)}
+.opts button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.opts button:disabled{opacity:.45;cursor:not-allowed;background:none}
+.opts .dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--muted);flex-shrink:0;display:grid;place-items:center}
+.opts button[aria-checked="true"]{background:var(--surface);font-weight:700;box-shadow:0 1px 0 var(--line)}
+.opts button[aria-checked="true"] .dot{border-color:var(--accent)}
+.opts button[aria-checked="true"] .dot::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.opts .state{margin-left:auto;font-size:11px;color:var(--sub);font-weight:400}
+.opts .state.ok{color:var(--good)}
+.opts .desc{display:block;font-size:11.5px;color:var(--sub);font-weight:400;margin-top:1px}
+label.fl{font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--fg);font-size:14px}
+.subpick{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-left:3px solid var(--amber);background:var(--surface);border-radius:0 8px 8px 0}
+.autoq{background:var(--surface);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.5;border-left:3px solid var(--accent)}
+.autoq b{font-size:15px}
+.hint{font-size:11.5px;color:var(--sub);line-height:1.5}
+.tag{display:inline-block;font-size:10px;font-weight:700;color:#fff;border-radius:4px;padding:1px 6px;letter-spacing:.02em}
+.tag.bk{background:var(--tag-bk)}.tag.ss{background:var(--tag-ss)}
+.memo-toggle{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sub)}
+.logo{display:flex;flex-direction:column;gap:2px}
+.logo b{font-size:28px;font-weight:800;letter-spacing:-.01em;line-height:1}
+.logo small{font-size:10px;letter-spacing:.1em;color:var(--sub);font-weight:700}
+.company{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.company b{display:block;font-size:15px}
+.company span{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+.navx{display:flex;flex-direction:column;gap:4px}
+.navx button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;font-size:14px;color:var(--fg);position:relative}
+.navx button:hover{background:var(--surface)}
+.navx button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.navx button[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.navx button[aria-current="page"]::before{content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--accent)}
+.navx .num{font-size:11px;color:var(--sub);font-weight:500;width:16px;font-variant-numeric:tabular-nums}
+.navx button[aria-current="page"] .num{color:var(--accent)}
+.navx svg{width:18px;height:18px;flex-shrink:0}
+.navx .state{margin-left:auto;font-size:11px;color:var(--sub);font-weight:400}
+.navx .state.ok{color:var(--good)}
+.side-bottom{margin-top:auto;display:flex;flex-direction:column;gap:14px}
+.status{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.status h4{margin:0 0 2px;font-size:13px}
+.status .row{display:flex;justify-content:space-between;gap:8px;color:var(--sub)}
+.status .row b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+.status .row b.ok{color:var(--good)}.status .row b.wait{color:var(--bad)}
+.status .snote{font-size:11px;color:var(--sub);border-top:1px solid var(--line);padding-top:8px;line-height:1.5}
+.sidefoot{border-top:1px solid var(--line);padding-top:12px;font-size:11px;color:var(--sub);line-height:1.6}
+body.nomemo .tag,body.nomemo .ann-label{display:none}
+.main{flex:1;min-width:0}
+.pad{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.inner{max-width:1060px;margin:0 auto;padding-inline:28px}
+.page-title{font-size:24px;margin:0;text-wrap:balance}
+.lead{color:var(--sub);margin:6px 0 0;line-height:1.6}
+.up-wrap{padding-block:40px 60px;display:flex;flex-direction:column;gap:20px}
+.drop{border:2px dashed var(--muted);border-radius:14px;background:var(--surface);min-height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:32px;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.drop svg{width:56px;height:56px;color:var(--sub)}
+.drop .big{font-size:22px;font-weight:700}
+.drop .small{color:var(--sub);font-size:13px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:500}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.05);color:#fff}
+.samples{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--sub)}
+.req{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.req div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--sub);line-height:1.5}
+.req code{display:block;color:var(--fg);font-weight:700;font-size:13px;margin-bottom:2px}
+.alert{border-radius:10px;padding:14px 16px;font-size:14px;line-height:1.6;display:flex;gap:10px;align-items:flex-start}
+.alert.info{background:var(--blue-soft);color:var(--fg)}
+.alert.ok{background:var(--good-soft)}
+.alert.err{background:var(--bad-soft)}
+.alert b{display:block}
+.alert .ic{font-weight:700;flex-shrink:0;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;color:#fff}
+.alert.info .ic{background:var(--blue)}.alert.ok .ic{background:var(--good)}.alert.err .ic{background:var(--bad)}
+.filecard{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.filecard .name{font-weight:700}
+.filecard .meta{color:var(--sub);font-size:12.5px}
+.filecard .x{margin-left:auto}
+.hero{background:var(--navy);color:var(--navy-fg)}
+.hero .inner{padding-block:28px 26px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.hero .eyebrow{color:var(--navy-eyebrow);font-size:12.5px;font-weight:700;letter-spacing:.08em}
+.hero h1{font-size:28px;margin:8px 0 6px;text-wrap:balance;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mode-badge{font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--amber);color:var(--amber-ink)}
+.hero .meta{color:var(--navy-sub);font-size:14px;font-variant-numeric:tabular-nums}
+.hero .right{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.chip-mock{background:var(--navy-chip);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700}
+.hero .btn{background:transparent;color:var(--navy-fg);border-color:var(--navy-chip)}
+.hero .btn:hover{border-color:var(--navy-fg);color:var(--navy-fg)}
+.rep{padding-block:22px 48px;display:flex;flex-direction:column;gap:14px}
+.concl{background:var(--blue-soft);border-radius:12px;padding:16px 20px}
+.concl.check{background:#FEF4DC}
+.concl small{color:var(--blue);font-weight:700;font-size:12.5px}
+.concl.check small{color:var(--amber-ink)}
+.concl div{font-size:19px;font-weight:700;margin-top:4px}
+h2{font-size:16px;margin:14px 0 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h2 .h2hint{font-size:12px;color:var(--sub);font-weight:400}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;position:relative}
+.card .t{font-size:13px;color:var(--sub);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.card .v{font-size:27px;font-weight:700;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.card .d{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.card .c{font-size:12px;color:var(--sub)}
+.card.verify{border:2px solid var(--amber)}
+.up{color:var(--good)}.down{color:var(--bad)}
+.ph{background:repeating-linear-gradient(135deg,var(--ph1) 0 10px,var(--ph2) 10px 20px);border:1.5px dashed var(--muted)}
+.ph .v{color:var(--muted)}
+.pill{font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--line);color:var(--sub)}
+.ann-label{position:absolute;top:-9px;right:10px}
+.charts{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px}
+.chart h4{margin:0;font-size:14.5px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--sub);margin:6px 0 2px;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.chart svg{width:100%;height:auto;display:block}
+.box h4{margin:0 0 6px;font-size:15px}
+.box ul{margin:0;padding-left:18px}
+.box li{margin:5px 0;line-height:1.55;font-size:13.5px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-bottom:10px;overflow-x:auto}
+.tabs button{all:unset;cursor:pointer;padding:8px 0;color:var(--sub);font-size:13.5px;white-space:nowrap;border-bottom:2px solid transparent}
+.tabs button[aria-selected="true"]{color:var(--accent);border-color:var(--accent);font-weight:700}
+.tabs button:focus-visible{outline:2px solid var(--blue)}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;white-space:nowrap}
+th{color:var(--sub);font-weight:500;background:var(--bg)}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+.note{background:var(--line);border-radius:12px;padding:16px 20px;line-height:1.7;font-size:13px}
+.note h4{margin:0 0 4px;font-size:14.5px}
+.foot{font-size:12px;color:var(--sub)}
+.toast{position:fixed;right:calc(20px + env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px}
+@media (max-width:900px){
+  .app{flex-direction:column}
+  .side{position:static;height:auto;overflow:visible;width:auto;border-right:0;border-bottom:1px solid var(--line);padding-right:max(16px,env(safe-area-inset-right,0px));padding-left:max(16px,env(safe-area-inset-left,0px))}
+  .memo-toggle{margin-top:0}
+  .inner{padding-inline:0}
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .charts,.g2.two{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  .g2,.g3,.g4,.req{grid-template-columns:minmax(0,1fr)}
+  .drop{min-height:240px}
+  .hero .right{align-items:flex-start}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo"><b>ALT</b><small>EARNINGS INTELLIGENCE</small></div>
+
+    <div class="company"><b>SK하이닉스</b><span>000660 · KOSPI</span></div>
+
+    <div class="sgroup">
+      <h3>워크스페이스</h3>
+      <nav class="navx" aria-label="화면 선택">
+        <button id="nav-upload" data-page="upload"><span class="num">01</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>데이터 업로드<span class="state" id="st-upload">대기</span></button>
+        <button id="nav-report" data-page="report"><span class="num">02</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2"/></svg>매출 전망<span class="state" id="st-report">업로드 필요</span></button>
+        <button id="nav-history" data-page="history"><span class="num">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4.5V9H8"/><path d="M12 8v4.5l3 2"/></svg>리포트 이력<span class="state" id="st-history">0건</span></button>
+      </nav>
+    </div>
+
+    <div class="sgroup">
+      <h3>보기 모드 <span class="tag bk">run_forecast</span></h3>
+      <div class="opts" role="radiogroup" aria-label="보기 모드">
+        <button id="mode-now" data-mode="now" role="radio"><span class="dot"></span><span>이번 분기 전망<span class="desc">자동으로 고른 진행 중인 분기</span></span></button>
+        <button id="mode-check" data-mode="check" role="radio"><span class="dot"></span><span>지난 분기 검증<span class="desc">추정과 확정 매출 비교</span></span></button>
+      </div>
+
+      <div class="autoq" id="autoq">대상 분기 <b>2026Q4</b><br><span class="hint">자동 선택: 두 지역 수출이 모두 공표된 가장 최근 달(2026-11)의 분기 <span class="tag bk">default_target_quarter</span></span></div>
+
+      <div class="subpick" id="subpick" hidden>
+        <label class="fl" for="past-q">검증할 분기 <span class="tag bk">list_target_quarters</span></label>
+        <select id="past-q"></select>
+        <span class="hint">확정 매출이 있는 분기만 표시합니다.</span>
+      </div>
+      <div class="hint" id="mode-hint">CSV를 업로드하면 선택할 수 있습니다.</div>
+    </div>
+
+    <div class="side-bottom">
+      <div class="status" aria-live="polite">
+        <h4>데이터 반영 현황</h4>
+        <div class="row"><span>확정 매출</span><b id="sb-act" class="wait">업로드 대기</b></div>
+        <div class="row"><span>수출 데이터</span><b id="sb-exp">2026-11까지</b></div>
+        <div class="row"><span>환율 데이터</span><b id="sb-fx">2026-11-13까지</b></div>
+        <div class="snote">확정 매출: 업로드 CSV · 수출·환율: data/ 저장 자료(API 수집)</div>
+      </div>
+      <label class="memo-toggle" for="memo"><input type="checkbox" id="memo" checked> 구현 메모(백엔드 함수 라벨) 표시</label>
+      <div class="sidefoot">ALT / MVP · UI 시안 v4<br>SK하이닉스 분기 매출 나우캐스트</div>
+    </div>
+  </aside>
+
+  <main class="main pad">
+    <section id="page-upload" class="inner up-wrap">
+      <div>
+        <h1 class="page-title">데이터 업로드</h1>
+        <p class="lead">팀이 DART 공시로 작성한 <b>확정 분기 매출 CSV</b>를 올리면 매출 전망 리포트를 볼 수 있습니다. 수출·환율 자료는 저장소의 data/ 파일을 사용합니다.</p>
+      </div>
+
+      <div id="up-alert" class="alert info"></div>
+
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="CSV 파일 선택 또는 끌어다 놓기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <div class="big">여기로 파일을 끌어다 놓으세요</div>
+        <div class="small">CSV 1개 · 200MB 이하 · UTF-8 또는 cp949(엑셀 기본 저장)</div>
+        <span class="btn" aria-hidden="true">파일 찾아보기</span>
+        <span class="tag bk">st.file_uploader → load_actuals (cp949 재시도)</span>
+      </div>
+      <input type="file" id="file" accept=".csv,text/csv" hidden>
+
+      <div class="samples">시안 체험용:
+        <button class="btn" id="sample-ok">정상 예시 CSV 불러오기</button>
+        <button class="btn" id="sample-bad">열 누락 예시 CSV 불러오기</button>
+      </div>
+
+      <div id="file-area" hidden>
+        <div class="filecard"><div><div class="name" id="f-name"></div><div class="meta" id="f-meta"></div></div><button class="btn x" id="f-remove">파일 지우기</button></div>
+      </div>
+
+      <div id="preview" hidden class="card">
+        <div class="t" style="margin-bottom:8px">업로드 원본 미리보기 <span class="tag bk">st.dataframe</span></div>
+        <div class="tbl" id="preview-tbl"></div>
+        <div style="margin-top:12px"><button class="btn primary" id="go-report">매출 전망 보기 →</button></div>
+      </div>
+
+      <div class="req">
+        <div><code>quarter</code>분기, "YYYYQn" (예: 2026Q3)</div>
+        <div><code>revenue_krw</code>연결 기준 3개월 매출, 원 단위</div>
+        <div><code>announced_date</code>잠정실적 공시일, "YYYY-MM-DD"</div>
+      </div>
+    </section>
+
+    <section id="page-report" hidden>
+      <div id="rep-gate" class="inner" style="padding-block:40px">
+        <h1 class="page-title">매출 전망</h1>
+        <div class="alert info" style="margin-top:16px"><span class="ic">i</span><div><b>먼저 확정 분기 매출 CSV를 업로드해 주세요.</b>‘데이터 업로드’ 메뉴에서 파일을 올리면 이 화면에 리포트가 표시됩니다.<div style="margin-top:10px"><button class="btn" id="gate-go">데이터 업로드로 이동</button></div></div></div>
+      </div>
+
+      <div id="rep-body" hidden>
+        <div class="hero" style="margin-inline:calc(-1 * max(16px, env(safe-area-inset-left,0px))) calc(-1 * max(16px, env(safe-area-inset-right,0px)))">
+          <div class="inner pad">
+            <div>
+              <div class="eyebrow">ALT / EARNINGS INTELLIGENCE</div>
+              <h1>실적 전망 및 주가 영향 리포트 <span class="mode-badge" id="mode-badge" hidden>지난 분기 검증</span></h1>
+              <div class="meta" id="h-meta"></div>
+            </div>
+            <div class="right">
+              <span class="chip-mock">MOCK 모드 · LLM 가짜 응답</span>
+              <button class="btn" id="save">리포트 이력에 저장</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="inner rep">
+          <div class="concl card" id="concl-box" style="border:0"><span class="tag bk ann-label">compare_guidance</span><small id="concl-label">핵심 결론</small><div id="concl"></div></div>
+
+          <div id="verify-block" hidden>
+            <h2>추정 vs 확정 매출 <span class="h2hint" id="verify-hint"></span></h2>
+            <div class="grid g3" style="margin-top:12px">
+              <div class="card verify"><div class="t">우리 추정 (중앙값)</div><div class="v" id="vf-est"></div><div class="c" id="vf-range"></div></div>
+              <div class="card verify"><div class="t">확정 매출 <span class="tag bk">업로드 CSV</span></div><div class="v" id="vf-act"></div><div class="c" id="vf-date"></div></div>
+              <div class="card ph"><div class="t">추정 오차율 <span class="pill">연결 예정</span></div><div class="v">— %</div><div class="c">|추정 − 확정| ÷ 확정 · backend 함수 추가 후 표시</div></div>
+            </div>
+          </div>
+
+          <h2>매출 전망 지표 <span class="h2hint">왼쪽: 우리 추정 · 오른쪽: 시장 컨센서스(연결 예정)</span></h2>
+          <div class="grid g2">
+            <div class="card"><span class="tag bk ann-label">estimate_revenue</span><div class="t">예상 매출 (중앙값)</div><div class="v" id="m-est"></div><div class="d" id="m-qoq"></div><div class="c">수출 × 과거 4개 분기 매출/수출 비율</div></div>
+            <div class="card ph"><div class="t">시장 컨센서스 <span class="pill">연결 예정</span></div><div class="v">—</div><div class="c">동일 분기 · 연결 매출 기준</div></div>
+            <div class="card"><div class="t">예상 범위 (하한 ~ 상한)</div><div class="v" id="m-range"></div><div class="c">기준 분기 비율의 최솟값 ~ 최댓값 적용</div></div>
+            <div class="card ph"><div class="t">예상 괴리율 <span class="pill">연결 예정</span></div><div class="v">—</div><div class="c">(예상 매출 ÷ 컨센서스 − 1) × 100</div></div>
+          </div>
+
+          <h2>수출 신호 지표</h2>
+          <div class="grid g4">
+            <div class="card ph"><div class="t">수출 증가율 · 직전 분기 대비 <span class="pill">준비 중</span></div><div class="v">—</div><div class="c">backend 함수 추가 후 표시</div></div>
+            <div class="card"><span class="tag bk ann-label">detect_anomaly</span><div class="t">수출 이상치 판정</div><div class="v" id="m-anom"></div><div class="d" id="m-yoy"></div><div class="c" id="m-z"></div></div>
+            <div class="card"><div class="t">반영된 수출 개월</div><div class="v" id="m-months"></div><div class="c" id="m-months-c"></div></div>
+            <div class="card"><div class="t">가이던스 일치 여부</div><div class="v" id="m-guid"></div><div class="c" id="m-guid-c"></div></div>
+          </div>
+
+          <h2>주가 영향 판단 <span class="pill">준비 중</span> <span class="h2hint">산출 방식 확정 후 표시</span></h2>
+          <div class="grid g3">
+            <div class="card ph"><div class="t">업종 펀더멘털 점수</div><div class="v">— / 100</div><div class="c">메모리 가격·수요·재고 지표 가중 합산 (예정)</div></div>
+            <div class="card ph"><div class="t">주가 영향 방향</div><div class="v">—</div><div class="c">긍정 / 중립 / 부정 (예정)</div></div>
+            <div class="card ph"><div class="t">판단 신뢰도</div><div class="v">— %</div><div class="c">신뢰도 점수이며 주가 상승 확률이 아님 (예정)</div></div>
+          </div>
+
+          <h2>차트</h2>
+          <div class="charts">
+            <div class="card chart"><span class="tag bk ann-label">exports_chart_table · 25개월 고정</span><h4>이천·청주 월별 메모리 수출 추이</h4><div class="c" id="c1-sub"></div>
+              <div class="legend"><span><i style="background:var(--blue)"></i>이천시</span><span><i style="background:var(--blue-2)"></i>청주시</span><span><i style="background:none;border:2px solid var(--amber)"></i>이상치 판정 대상 월</span></div>
+              <svg id="c1" viewBox="0 0 560 220" role="img" aria-label="월별 수출 막대 차트"></svg></div>
+            <div class="card chart"><h4>분기 매출 추이와 대상 분기 추정</h4><div class="c">조 원 · 확정 실적(업로드 CSV) + 추정 범위</div>
+              <div class="legend"><span><i style="background:var(--bar-grey)"></i>확정 매출</span><span><i style="background:var(--good)"></i>추정(범위)</span><span id="lg-actual"><i style="background:var(--accent);border-radius:50%"></i>대상 분기 확정 매출</span></div>
+              <svg id="c2" viewBox="0 0 440 220" role="img" aria-label="분기 매출 막대 차트"></svg></div>
+          </div>
+
+          <h2>판단 근거와 위험요인</h2>
+          <div class="grid g2 two">
+            <div class="card box"><h4>추정 근거</h4><ul id="basis"></ul></div>
+            <div class="card box"><h4>주요 위험요인</h4><ul>
+              <li>지역 수출과 기업 연결 매출 간 대표성 차이</li>
+              <li>중국 공장·해외 생산분은 과거 비율에만 반영됨</li>
+              <li>관세청 전월 수치가 정정될 수 있음</li>
+              <li>매출 증가가 이익률 개선을 뜻하지는 않음</li></ul></div>
+          </div>
+
+          <div class="card ph"><h4 style="margin:0;font-size:15px;color:var(--sub)">요약 브리프 <span class="pill">연결 예정</span></h4><p class="c" style="margin:6px 0 0">generate_brief 구현 후 3~5문장 설명이 이 자리에 표시됩니다.</p></div>
+
+          <h2>데이터</h2>
+          <div class="card">
+            <div class="tabs" role="tablist">
+              <button role="tab" data-tab="raw" aria-selected="true">업로드 원본</button>
+              <button role="tab" data-tab="clean" aria-selected="false">검증된 실적</button>
+              <button role="tab" data-tab="qtr" aria-selected="false">분기 집계</button>
+            </div>
+            <div class="tbl" id="tab-body"></div>
+          </div>
+
+          <div class="note"><h4>해석 시 유의사항</h4><b>본 리포트는 투자 판단 보조용이며 투자 권유가 아닙니다.</b><br>예상 매출은 공개 수출 통계로 계산한 추정치로, 실제 실적과 다를 수 있습니다. 주가 영향 판단은 상승이나 수익을 보장하지 않습니다.</div>
+          <div class="foot">ALT | 투자 판단 보조용 · 목표주가 미제공 · ※ 확정 매출은 팀 저장소 data/actuals.csv 값, 추정·수출·판정 숫자는 레이아웃 설명용 예시 값입니다</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-history" class="inner up-wrap" hidden>
+      <div>
+        <h1 class="page-title">리포트 이력 <span class="tag ss">session_state</span></h1>
+        <p class="lead">‘매출 전망’에서 저장한 리포트가 이 세션 동안 쌓입니다. 같은 분기를 같은 날 다시 저장하면 덮어씁니다.</p>
+      </div>
+      <div id="hist-body"></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const REQ=["quarter","revenue_krw","announced_date"];
+const TODAY="2026-11-15";
+// values copied from team repo alt_backend/data/actuals.csv
+const SAMPLE_OK="quarter,revenue_krw,announced_date\n2024Q1,12429600000000,2024-04-25\n2024Q2,16423300000000,2024-07-25\n2024Q3,17573100000000,2024-10-24\n2024Q4,19767000000000,2025-01-23\n2025Q1,17639100000000,2025-04-24\n2025Q2,22232000000000,2025-07-24\n2025Q3,24448900000000,2025-10-29\n2025Q4,32826700000000,2026-01-28\n2026Q1,52576300000000,2026-04-23\n2026Q2,79318700000000,2026-07-29\n2026Q3,104615500000000,2026-10-28\n";
+const SAMPLE_BAD="quarter,announced_date\n2026Q1,2026-04-23\n2026Q2,2026-07-29\n2026Q3,2026-10-28\n";
+const CURRENT="2026Q4";
+// example backend outputs per target quarter (mock values)
+const FC={
+ "2026Q4":{est:128.4,lo:119.2,hi:137.9,qoq:22.7,months:2,ratio:1.50,reason:"정상",yoy:182.4,z:1.12,gs:"일치",fd:"상승",gd:"상승",endYm:"2026-11"},
+ "2026Q3":{est:98.7,lo:91.5,hi:106.3,qoq:24.4,months:3,ratio:1.47,reason:"정상",yoy:165.0,z:0.91,gs:"일치",fd:"상승",gd:"상승",endYm:"2026-09"},
+ "2026Q2":{est:74.1,lo:68.0,hi:80.9,qoq:40.9,months:3,ratio:1.44,reason:"정상",yoy:142.3,z:1.38,gs:"판단불가",fd:"상승",gd:null,endYm:"2026-06"},
+ "2026Q1":{est:49.8,lo:45.6,hi:54.7,qoq:51.8,months:3,ratio:1.41,reason:"급증",yoy:118.6,z:2.35,gs:"일치",fd:"상승",gd:"상승",endYm:"2026-03"},
+ "2025Q4":{est:30.9,lo:28.4,hi:33.6,qoq:26.6,months:3,ratio:1.39,reason:"정상",yoy:61.2,z:1.61,gs:"일치",fd:"상승",gd:"상승",endYm:"2025-12"}
+};
+const FX={"2024Q1":1329.4,"2024Q2":1371.2,"2024Q3":1358.4,"2024Q4":1398.9,"2025Q1":1452.6,"2025Q2":1403.1,"2025Q3":1386.2,"2025Q4":1431.5,"2026Q1":1448.9,"2026Q2":1412.3,"2026Q3":1398.7,"2026Q4":1420.4};
+const MONTHS=[];for(let y=2023;y<=2026;y++)for(let m=1;m<=12;m++){if(y===2026&&m>11)break;MONTHS.push(`${y}-${String(m).padStart(2,"0")}`)}
+const EXP=MONTHS.map((ym,i)=>{const g=Math.exp(i*0.052),w=1+Math.sin(i*1.3)*0.06;return{ym,a:+(7.5*g*w).toFixed(1),b:+(4.8*g*w).toFixed(1)}});
+
+const S={page:"upload",mode:"now",pastQ:null,rows:null,header:null,file:null,history:[],tab:"raw"};
+const targetQ=()=>S.mode==="now"?CURRENT:S.pastQ;
+
+function toast(msg){const t=$("toast");t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2200)}
+function fmtJo(v){return v.toFixed(1)+"조 원"}
+function sign(v){return(v>0?"+":"")+v.toFixed(1)+"%"}
+function arrow(v){return v>0?"▲ ":v<0?"▼ ":""}
+function prevQ(q){let y=+q.slice(0,4),n=+q[5]-1;if(n===0){y--;n=4}return y+"Q"+n}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function actualMap(){const m={};(S.rows||[]).forEach(r=>{m[r[0]]={jo:(+r[1])/1e12,date:r[2]}});return m}
+function monthsOf(q){const y=q.slice(0,4),n=+q[5];return[1,2,3].map(k=>`${y}-${String((n-1)*3+k).padStart(2,"0")}`)}
+
+function go(page){S.page=page;if(location.hash!=="#"+page)history.replaceState(null,"","#"+page);render()}
+const PAGES=["upload","report","history"];
+window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(PAGES.includes(h)){S.page=h;render()}});
+document.querySelectorAll("[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
+$("gate-go").onclick=()=>go("upload");$("go-report").onclick=()=>go("report");
+
+document.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",()=>{if(!S.rows)return;S.mode=b.dataset.mode;render()}));
+$("past-q").addEventListener("change",e=>{S.pastQ=e.target.value;render()});
+
+const drop=$("drop"),fin=$("file");
+drop.addEventListener("click",()=>fin.click());
+drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fin.click()}});
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)readFile(f)});
+fin.addEventListener("change",()=>{if(fin.files[0])readFile(fin.files[0]);fin.value=""});
+$("sample-ok").onclick=()=>accept("actuals.csv",SAMPLE_OK,"UTF-8",SAMPLE_OK.length);
+$("sample-bad").onclick=()=>accept("actuals_missing_col.csv",SAMPLE_BAD,"UTF-8",SAMPLE_BAD.length);
+$("f-remove").onclick=()=>{S.rows=null;S.header=null;S.file=null;S.error=null;S.mode="now";render()};
+
+function readFile(f){
+  if(!/\.csv$/i.test(f.name)){S.file={name:f.name,size:f.size,enc:"-"};S.error="CSV 파일만 올릴 수 있습니다. 확장자가 .csv인지 확인해 주세요.";S.rows=null;render();return}
+  f.arrayBuffer().then(buf=>{
+    let text,enc="UTF-8";
+    try{text=new TextDecoder("utf-8",{fatal:true}).decode(buf)}
+    catch(_){text=new TextDecoder("euc-kr").decode(buf);enc="cp949 (UTF-8 실패 후 재시도)"}
+    accept(f.name,text.replace(/^﻿/,""),enc,f.size);
+  });
+}
+function pastQuarters(){const a=actualMap();return Object.keys(FC).filter(q=>q!==CURRENT&&a[q]).sort().reverse()}
+function accept(name,text,enc,size){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim()!=="");
+  const header=(lines[0]||"").split(",").map(s=>s.trim());
+  const rows=lines.slice(1).map(l=>l.split(",").map(s=>s.trim()));
+  const missing=REQ.filter(c=>!header.includes(c));
+  S.file={name,size,enc};
+  if(lines.length===0){S.error="파일이 비어 있습니다. 열 이름이 있는 CSV를 올려 주세요.";S.rows=null}
+  else if(missing.length){S.error="필수 열 누락: "+missing.join(", ");S.rows=null;S.header=header}
+  else{S.error=null;S.header=header;S.rows=rows;
+    const opts=pastQuarters();S.pastQ=opts[0]||null;
+    $("past-q").innerHTML=opts.map(q=>`<option value="${q}">${q} (확정 공시 ${actualMap()[q].date})</option>`).join("");
+    if(!opts.length)S.mode="now";}
+  render();
+}
+
+$("memo").addEventListener("change",e=>document.body.classList.toggle("nomemo",!e.target.checked));
+$("save").onclick=()=>{
+  const q=targetQ(),f=FC[q];
+  const i=S.history.findIndex(h=>h.quarter===q&&h.as_of===TODAY);
+  const row={quarter:q,as_of:TODAY,mode:S.mode==="now"?"전망":"검증",est:f.est,lo:f.lo,hi:f.hi,qoq:f.qoq,months:f.months,status:"ok"};
+  if(i>=0)S.history[i]=row;else S.history.push(row);
+  render();toast(i>=0?"같은 날 같은 분기 리포트를 덮어썼습니다":"리포트 이력에 저장했습니다 · 사이드바 ‘리포트 이력’에서 확인");
+};
+document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>{S.tab=b.dataset.tab;renderTabs()}));
+
+function table(head,rows,numCols){numCols=numCols||[];
+  return "<table><thead><tr><th></th>"+head.map(h=>`<th>${esc(h)}</th>`).join("")+"</tr></thead><tbody>"+
+  rows.map((r,i)=>"<tr><td>"+i+"</td>"+r.map((c,j)=>`<td class="${numCols.includes(j)?"n":""}">${esc(c)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"}
+
+function render(){
+  const loaded=!!S.rows;
+  PAGES.forEach(p=>{$("page-"+p).hidden=S.page!==p;$("nav-"+p).setAttribute("aria-current",S.page===p?"page":"false")});
+  $("st-history").textContent=S.history.length+"건";$("st-history").className="state"+(S.history.length?" ok":"");
+  const sa=$("sb-act");sa.textContent=loaded?`${S.rows.length}개 분기`:"업로드 대기";sa.className=loaded?"ok":"wait";
+  $("sb-exp").textContent=loaded?`${FC[targetQ()].months} / 3개월 (${targetQ()})`:"2026-11까지";
+  $("sb-fx").textContent=loaded?"반영 완료":"2026-11-13까지";$("sb-fx").className=loaded?"ok":"";
+  if(S.page==="history")renderHistory();
+  $("st-upload").textContent=loaded?"완료":S.error?"오류":"대기";$("st-upload").className="state"+(loaded?" ok":"");
+  $("st-report").textContent=loaded?targetQ():"업로드 필요";$("st-report").className="state"+(loaded?" ok":"");
+  ["now","check"].forEach(m=>{const b=$("mode-"+m);b.disabled=!loaded;b.setAttribute("aria-checked",S.mode===m)});
+  $("autoq").hidden=S.mode!=="now";$("subpick").hidden=S.mode!=="check"||!loaded;
+  $("mode-hint").textContent=loaded?"모드를 바꾸면 매출 전망 화면이 바로 바뀝니다.":"CSV를 업로드하면 선택할 수 있습니다.";
+  if(S.pastQ)$("past-q").value=S.pastQ;
+  const a=$("up-alert");
+  if(loaded){a.className="alert ok";a.innerHTML=`<span class="ic">✓</span><div><b>업로드 완료: ${S.rows.length}개 분기 실적을 읽었습니다.</b>인코딩: ${esc(S.file.enc)}</div>`}
+  else if(S.error){a.className="alert err";a.innerHTML=`<span class="ic">!</span><div><b>${esc(S.error)}</b>파일을 고친 뒤 다시 올려 주세요. 필수 열은 quarter, revenue_krw, announced_date 입니다. (load_actuals의 ValueError를 st.error로 표시)</div>`}
+  else{a.className="alert info";a.innerHTML=`<span class="ic">i</span><div><b>아직 업로드된 파일이 없습니다.</b>CSV를 올리기 전에는 리포트를 계산하지 않습니다 (app.py에서 안내 후 st.stop).</div>`}
+  $("file-area").hidden=!S.file;
+  if(S.file){$("f-name").textContent=S.file.name;$("f-meta").textContent=`${(S.file.size/1024).toFixed(1)}KB · ${S.file.enc}`}
+  $("drop").hidden=loaded;$("preview").hidden=!loaded;
+  if(loaded)$("preview-tbl").innerHTML=table(S.header,S.rows,[1]);
+  $("rep-gate").hidden=loaded;$("rep-body").hidden=!loaded;
+  if(loaded&&S.page==="report")renderReport();
+}
+
+function renderReport(){
+  const q=targetQ(),f=FC[q],yr=q.slice(0,4),n=q[5],check=S.mode==="check",act=actualMap()[q];
+  const ms=monthsOf(q),firstM=+ms[0].slice(5),lastM=+f.endYm.slice(5);
+  $("mode-badge").hidden=!check;
+  $("h-meta").textContent=check
+    ? `SK하이닉스 | ${yr}년 ${n}분기 사후 검증 | 기준일: ${TODAY} | 수출 ${firstM}~${lastM}월 모두 반영`
+    : `SK하이닉스 | ${yr}년 ${n}분기 (자동 선택) | 기준일: ${TODAY} | 수출 반영: ${firstM}~${lastM}월`;
+  $("concl-box").classList.toggle("check",check);
+  if(check){
+    $("concl-label").textContent="검증 요약";
+    $("concl").textContent=`추정 ${fmtJo(f.est)} (범위 ${f.lo.toFixed(1)}~${f.hi.toFixed(1)}조) · 확정 ${fmtJo(act.jo)}`;
+  }else{
+    $("concl-label").textContent="핵심 결론";
+    const gtxt=f.gs==="판단불가"?"컨콜 가이던스와 비교 판단불가":f.gs==="일치"?"컨콜 가이던스와 일치":"컨콜 가이던스와 불일치";
+    $("concl").textContent=`매출 전분기 대비 ${f.fd} 전망 · ${gtxt}`;
+  }
+  $("verify-block").hidden=!check;
+  if(check){
+    $("verify-hint").textContent="현재 저장된 자료로 다시 계산한 값 · 대상 분기와 그 이후 실적은 계산에 쓰지 않음";
+    $("vf-est").textContent=fmtJo(f.est);$("vf-range").textContent=`범위 ${f.lo.toFixed(1)} ~ ${f.hi.toFixed(1)}조 원`;
+    $("vf-act").textContent=fmtJo(act.jo);$("vf-date").textContent=`잠정실적 공시일 ${act.date}`;
+  }
+  $("m-est").textContent=fmtJo(f.est);
+  const qq=$("m-qoq");qq.textContent=`${arrow(f.qoq)}${sign(f.qoq)} 전분기 대비`;qq.className="d "+(f.qoq>=0?"up":"down");
+  $("m-range").textContent=`${f.lo.toFixed(1)} ~ ${f.hi.toFixed(1)}조 원`;
+  $("m-anom").textContent=f.reason;$("m-anom").className="v "+(f.reason==="정상"?"":f.reason==="급감"?"down":"up");
+  const y=$("m-yoy");y.textContent=`${arrow(f.yoy)}${sign(f.yoy)} 전년 동월 대비 (${f.endYm})`;y.className="d "+(f.yoy>=0?"up":"down");
+  $("m-z").textContent=`z = ${f.z.toFixed(2)} (기준 ±2.0)`;
+  $("m-months").textContent=`${f.months} / 3`;
+  $("m-months-c").textContent=f.months<3?`${firstM}~${lastM}월 반영 · ${lastM+1}월분 공표 전 · 3개월로 환산`:"3개월 수출 모두 반영";
+  $("m-guid").textContent=f.gs;$("m-guid").className="v "+(f.gs==="판단불가"?"":f.gs==="일치"?"up":"down");
+  $("m-guid-c").textContent=`예측 ${f.fd} · 가이던스 ${f.gd||"방향 없음"} (D램 기준)`;
+  $("basis").innerHTML=[
+    `적용 비율 ${f.ratio.toFixed(2)} (${q} 이전 4개 분기 달러 매출 ÷ 수출 평균)`,
+    f.months<3?`대상 분기 수출 ${f.months}개월 반영 → 3개월로 환산`:`대상 분기 수출 3개월 모두 반영`,
+    `이천·청주 수출 전년 동월 대비 ${sign(f.yoy)} (${f.reason})`,
+    `직전 분기(${prevQ(q)}) 컨콜 가이던스: ${f.gd?"가격 ‘"+f.gd+"’ 전망":"방향 판단 불가"}`
+  ].map(t=>`<li>${esc(t)}</li>`).join("");
+  drawC1();drawC2();renderTabs();
+}
+
+const NS="http://www.w3.org/2000/svg";
+function el(svg,tag,a,txt){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!==undefined)e.textContent=txt;svg.appendChild(e);return e}
+function niceMax(v){const step=v>100?50:v>40?20:10;return Math.ceil(v/step)*step}
+function drawC1(){
+  const s=$("c1");s.innerHTML="";const f=FC[targetQ()];
+  const end=MONTHS.indexOf(f.endYm),data=EXP.slice(end-24,end+1); // fixed: target month + previous 24 months
+  $("c1-sub").textContent=`HS 854232 · 억 달러 · ${data[0].ym} ~ ${data[data.length-1].ym} (25개월 = 이상치 판정에 쓴 기간)`;
+  const max=niceMax(Math.max(...data.map(d=>d.a+d.b))*1.08);
+  const L=34,B=190,H=160,W=516,step=W/data.length,bw=step*.66;
+  for(let g=0;g<=4;g++){const yv=max*g/4,yy=B-H*yv/max;el(s,"line",{x1:L,x2:L+W,y1:yy,y2:yy,stroke:"var(--line)"});el(s,"text",{x:L-6,y:yy+4,"font-size":10,fill:"var(--sub)","text-anchor":"end"},yv.toFixed(0))}
+  data.forEach((d,i)=>{const x=L+i*step+(step-bw)/2,ha=H*d.a/max,hb=H*d.b/max,last=i===data.length-1;
+    el(s,"rect",{x,y:B-ha,width:bw,height:ha,fill:"var(--blue)"});
+    el(s,"rect",{x,y:B-ha-hb-1,width:bw,height:hb,fill:"var(--blue-2)",rx:1.5});
+    if(last)el(s,"rect",{x:x-3,y:B-ha-hb-5,width:bw+6,height:ha+hb+5,fill:"none",stroke:"var(--amber)","stroke-width":2.5,rx:3});
+    if(i%3===0||last)el(s,"text",{x:x+bw/2,y:B+15,"font-size":9.5,fill:last?"var(--fg)":"var(--sub)","font-weight":last?700:400,"text-anchor":"middle"},d.ym.slice(2))});
+}
+function drawC2(){
+  const s=$("c2");s.innerHTML="";const q=targetQ(),f=FC[q],am=actualMap();
+  const qs=Object.keys(am).filter(k=>k<q).sort().slice(-6);qs.push(q);
+  const tgtActual=S.mode==="check"&&am[q]?am[q].jo:null;
+  const max=niceMax(Math.max(f.hi,tgtActual||0,...qs.slice(0,-1).map(k=>am[k].jo))*1.1);
+  const L=30,B=190,H=160,W=400,step=W/qs.length,bw=Math.min(32,step*.6);
+  for(let g=0;g<=4;g++){const yv=max*g/4,yy=B-H*yv/max;el(s,"line",{x1:L,x2:L+W,y1:yy,y2:yy,stroke:"var(--line)"});el(s,"text",{x:L-6,y:yy+4,"font-size":10,fill:"var(--sub)","text-anchor":"end"},yv.toFixed(0))}
+  qs.forEach((k,i)=>{const last=k===q,v=last?f.est:am[k].jo,x=L+i*step+(step-bw)/2,h=H*v/max,cx=x+bw/2;
+    el(s,"rect",{x,y:B-h,width:bw,height:h,fill:last?"var(--good)":"var(--bar-grey)",rx:2});
+    if(last){const yu=B-H*f.hi/max,yl=B-H*f.lo/max;el(s,"line",{x1:cx,x2:cx,y1:yu,y2:yl,stroke:"var(--fg)","stroke-width":1.5});[yu,yl].forEach(yy=>el(s,"line",{x1:cx-7,x2:cx+7,y1:yy,y2:yy,stroke:"var(--fg)","stroke-width":1.5}));
+      el(s,"text",{x:cx,y:yu-7,"font-size":11,fill:"var(--good)","font-weight":700,"text-anchor":"middle"},f.est.toFixed(1));
+      if(tgtActual!=null){const cy=B-H*tgtActual/max;el(s,"circle",{cx,cy,r:5.5,fill:"var(--accent)",stroke:"var(--surface)","stroke-width":1.5});el(s,"text",{x:cx-11,y:cy+4,"font-size":10.5,fill:"var(--accent)","font-weight":700,"text-anchor":"end"},tgtActual.toFixed(1))}}
+    el(s,"text",{x:cx,y:B+15,"font-size":10,fill:last?"var(--good)":"var(--sub)","font-weight":last?700:400,"text-anchor":"middle"},k.slice(2))});
+  $("lg-actual").hidden=tgtActual==null;
+}
+function renderTabs(){
+  document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===S.tab?"true":"false"));
+  const body=$("tab-body");
+  if(S.tab==="raw")body.innerHTML=table(S.header,S.rows,[1])+'<div class="c" style="margin-top:6px">st.dataframe · 업로드한 CSV 그대로</div>';
+  else if(S.tab==="clean")body.innerHTML=table(["quarter","revenue_krw","announced_date"],[...S.rows].sort((a,b)=>a[0]<b[0]?-1:1).map(r=>[r[0],(+r[1]).toLocaleString("ko-KR")+".0",r[2]]),[1])+'<div class="c" style="margin-top:6px">load_actuals 결과 · revenue_krw는 float</div>';
+  else if(S.tab==="qtr"){
+    const agg={};EXP.forEach(d=>{const y=d.ym.slice(0,4),qn=Math.ceil(+d.ym.slice(5)/3),k=y+"Q"+qn;if(k<"2024Q1")return;agg[k]=agg[k]||{usd:0,m:0};agg[k].usd+=(d.a+d.b)*1e8;agg[k].m++});
+    body.innerHTML=table(["quarter","export_usd","months_available","fx_avg"],Object.keys(agg).sort().map(k=>[k,Math.round(agg[k].usd).toLocaleString("en-US"),agg[k].m,FX[k].toFixed(1)]),[1,2,3])+'<div class="c" style="margin-top:6px">aggregate_quarterly 결과 · data/exports.csv, data/fx.csv 기반 (예시 값)</div>';
+  }
+}
+function renderHistory(){
+  const body=$("hist-body");
+  if(!S.history.length){
+    body.innerHTML=`<div class="alert info"><span class="ic">i</span><div><b>저장된 리포트가 없습니다.</b>‘매출 전망’ 화면 위쪽의 ‘리포트 이력에 저장’을 누르면 여기에 쌓입니다. 보기 모드를 바꿔 화면이 다시 실행돼도 이 목록은 유지됩니다.${S.rows?'<div style="margin-top:10px"><button class="btn" id="hist-go">매출 전망으로 이동</button></div>':""}</div></div>`;
+    const g=$("hist-go");if(g)g.onclick=()=>go("report");return;
+  }
+  body.innerHTML='<div class="card"><div class="tbl">'+table(["quarter","as_of","보기 모드","estimate(조)","lower(조)","upper(조)","qoq_change_pct","months_available","status"],S.history.map(h=>[h.quarter,h.as_of,h.mode,h.est.toFixed(1),h.lo.toFixed(1),h.hi.toFixed(1),sign(h.qoq),h.months,h.status]),[3,4,5,6,7])+'</div><div class="c" style="margin-top:8px">st.dataframe(st.session_state["report_history"]) · 키: quarter + as_of</div></div>';
+}
+
+const h=location.hash.slice(1);if(PAGES.includes(h))S.page=h;
+render();
+})();
+</script>
+
+</body>
+</html>
