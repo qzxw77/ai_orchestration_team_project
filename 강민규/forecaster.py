@@ -30,9 +30,11 @@ def _is_valid_ym(value: object) -> bool:
         없음
     """
     # isdigit()는 "²" 같은 위첨자도 True라 int()에서 ValueError가 나므로 isdecimal()로 확인한다
+    # isdecimal()은 전각 숫자("２０２６")도 True라 isascii()로 ASCII 숫자만 인정한다
     return (
         isinstance(value, str)
         and len(value) == 7
+        and value.isascii()
         and value[4] == "-"
         and value[:4].isdecimal()
         and value[5:].isdecimal()
