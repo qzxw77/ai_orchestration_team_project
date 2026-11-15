@@ -1,5 +1,12 @@
 # 알트(ALT) 백엔드: SK하이닉스 분기 매출 나우캐스팅
 
+## 교차 리뷰 반영 내역 (10주차)
+
+| 번호 | 받은 코멘트 (리뷰 번호, 대상) | 판단 | 이유 | 반영 내용 | 관련 커밋 |
+|---|---|---|---|---|---|
+| 1 | 의존성 파일 보완 (강민규/data_loader.py:5): python-dotenv를 import하지만 requirements.txt에 없어 새 환경에서 `ModuleNotFoundError: dotenv`가 남 | 수용 | 팀원별 폴더에 requirements가 따로 있어 패키지가 빠졌고, 새 환경에서 테스트를 재현할 수 없었음 | 루트의 `requirements.txt` 하나로 통일: pandas, requests, python-dotenv, anthropic, pytest | 883888e |
+| 2 | 문법 오류로 import 불가 (신해성/preprocess.py:1): 1행 `[수정] 음수 lag_months 검사를...`가 주석이 아니라 SyntaxError | 수용 | preprocess 모듈 전체를 import할 수 없어 aggregate_quarterly 테스트가 하나도 실행되지 않았고, 통합 실행이 막힘 | 리뷰는 `#` 처리나 docstring 이동을 제안했으나, 변경 이력은 커밋 메시지에 남으므로 그 줄을 삭제함. 수정 후 `hynix_nowcast/preprocess.py`로 합쳐 import와 pytest 실행을 확인 | e141087 |
+
 관세청 수출 API와 한국은행 ECOS 환율 API 키만 넣으면 수집, 정제, 분기 집계, 매출 추정, 이상치 판정, 가이던스 비교, 브리프 작성까지 한 번에 실행됩니다.
 
 ## 파일 구성
