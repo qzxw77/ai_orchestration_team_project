@@ -175,6 +175,11 @@ def render_forecast(upload: dict) -> dict | None:
 
     if result["status"] != "ok":
         st.warning(f"**{quarter} 매출은 아직 추정할 수 없습니다.**\n\n{result['brief']}")
+        if result["status"] == "no_data":
+            st.caption(
+                "수출 CSV를 올렸는데도 이 안내가 나오면 환율 자료(data/fx.csv)가 있는지 확인해 주세요. "
+                "예측에는 수출과 환율이 모두 필요합니다."
+            )
         return result
 
     _show_forecast_metrics(result["facts"])
