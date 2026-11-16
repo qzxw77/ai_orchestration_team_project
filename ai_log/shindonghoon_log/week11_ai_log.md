@@ -100,14 +100,15 @@ upload: A 구역 load_upload()의 반환값. 이 함수에서는 upload["key"]�
 
 ## 2. 생성 코드
 
-> 작성 예정. AI 생성본을 고치지 않고 그대로 커밋한 뒤, 커밋 해시와 코드 요지를 적는다.
-
-- 생성본 커밋: `<해시>`
-- 코드 요지:
-  - (사이드바 selectbox 구성)
-  - (session_state 키와 보관 조건)
-  - (지표 배치)
-  - (예외 처리)
+- 생성 도구: copilot (1차 프롬프트 그대로 입력)
+- 생성본 커밋: `<해시>` (고치지 않고 그대로 커밋해 보존)
+- 코드 요지: `render_forecast` 본문과 보조 함수 3개(`_select_forecast_quarter`, `_show_forecast_metrics`, `_show_forecast_error`)
+  - **사이드바 selectbox:** 라벨 "대상 분기 (매출을 추정할 분기)", key `forecast_quarter`. 목록은 `list_target_quarters()`, 기본값은 `default_target_quarter()`. 기본값이 목록에 없으면 첫 번째 분기를 고른다.
+  - **session_state:** `forecast_cache_key`(마지막 (업로드 key, 분기)), `forecast_result`(그 결과). `if "forecast_cache_key" not in st.session_state:` 관용구로 초기화하고, 키가 같으면 `run_forecast`를 다시 부르지 않는다. 오류가 나면 보관하지 않는다.
+  - **지표:** `st.columns(4)`에 예상 매출, 예상 범위, 직전 분기 대비, 반영된 수출 개월을 `facts` 문자열 그대로 보여 준다. 각 지표에 계산 방법 help 툴팁. 아래 `st.caption`에 이상치 판정과 가이던스 비교 한 줄.
+  - **status가 "ok"가 아닐 때:** `st.warning`에 "`<분기>`는 아직 매출을 추정할 수 없습니다." + `result["brief"]`를 보여 주고 result를 그대로 돌려준다.
+  - **예외:** `except (ValueError, FileNotFoundError)`만 잡아 `st.error`로 원인을 보여 주고, 오류 종류에 따라 확인할 곳(`data/actuals.csv` 등)을 안내한 뒤 None을 돌려준다.
+  - import 추가 없음, pandas 없음. 위젯과 session_state 키는 모두 `forecast_` 접두어.
 
 ---
 
