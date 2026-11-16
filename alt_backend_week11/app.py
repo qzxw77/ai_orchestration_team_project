@@ -37,19 +37,90 @@ def load_upload() -> dict:
             imported (dict): backend.import_exports 결과. exports(DataFrame), raw_rows, clean_rows, added(int)
         업로드 전이거나 처리할 수 없는 파일이면 반환하지 않고 st.stop()으로 멈춘다.
 
-    담당자가 할 일 (지금 본문은 임시 최소 구현):
-        - 업로드 전: 어떤 CSV를 올리면 되는지 st.info로 안내한 뒤 st.stop()
-        - cp949 파일: backend.read_uploaded_csv의 seek(0) 재시도로 읽히는지 확인
-        - 잘못된 파일(필수 열 누락, 월이나 지역 형식 오류, 빈 파일): ValueError를 잡아 st.error로 안내하고 st.stop()
-        - session_state: 같은 파일이면 다시 정제, 저장하지 않게 한다 (지금은 위젯을 만질 때마다 다시 함)
-        - 정제 후 남은 행이 0개면 st.warning으로 안내
-        - (backend) 필수 열 누락 메시지의 '원자료 열'에 올리지 않은 collected_at이 섞여 나오는 문제
+    구현 메모:
+        - session_state의 upload_key, upload_result에 마지막으로 처리한 파일의 key와 결과를 둔다.
+          사이드바 필터를 움직이면 스크립트 전체가 다시 실행되는데, 그때마다 같은 CSV를 다시 정제하고
+          data/exports.csv에 다시 저장하지 않기 위해서다. 새 파일(key가 다름)일 때만 정제, 저장한다.
+        - 처리할 수 없는 파일은 backend가 ValueError로 알린다(필수 열 누락, 월이나 지역 형식 오류, 빈 파일,
+          읽을 수 없는 인코딩, CSV 형식 오류). 그 파일은 저장되지 않으므로 원인과 고치는 방법을 보여 주고 멈춘다.
+          그 밖의 예외는 코드 실수일 수 있어 잡지 않는다.
     """
-    uploaded = st.file_uploader("시군구별 수출 CSV를 끌어다 놓으세요", type="csv", key="upload_file")
+    st.subheader("수출 자료 업로드")
+    if "upload_key" not in st.session_state:  # 초기화 관용구: 세션에서 처음 한 번만 만든다
+        st.session_state.upload_key = None
+        st.session_state.upload_result = None
+
+    uploaded = st.file_uploader(
+        "시군구별 수출 CSV를 끌어다 놓으세요",
+        type="csv",
+        key="upload_file",
+        help="관세청 시군구별 품목별 수출입실적 원자료(priodTitle, sggNm, expUsdAmt 열) 또는 "
+        "같은 내용을 한글 열 이름(기간, 시군구, 수출금액)으로 담은 CSV. UTF-8과 cp949(엑셀 기본)를 읽습니다.",
+    )
     if uploaded is None:
+        st.info(
+            "**이천시, 청주시의 메모리 반도체(HS 854232) 월별 수출 CSV를 올리면 분석이 시작됩니다.**\n\n"
+            "| 필요한 열 | 관세청 원자료 이름 | 한글 이름 예 |\n"
+            "|---|---|---|\n"
+            "| 월 | priodTitle (예: 2026.08) | 기간, 년월 |\n"
+            "| 지역 | sggNm (예: 경기도 이천시) | 시군구, 지역 |\n"
+            "| 수출금액 | expUsdAmt (천 달러) | 수출금액, 수출금액(천달러) |\n\n"
+            "품목 코드(hsSgn)와 수집일(collected_at)은 없어도 됩니다. "
+            "예시 파일은 `samples/exports_normal.csv`이고, 원자료는 공공데이터포털의 "
+            "'관세청_시군구별 품목별 수출입실적'에서 받을 수 있습니다."
+        )
         st.stop()
-    raw = backend.read_uploaded_csv(uploaded)
-    return {"key": (uploaded.name, uploaded.size), "raw": raw, "imported": backend.import_exports(raw)}
+
+    upload_key = (uploaded.name, uploaded.size)
+    if st.session_state.upload_key != upload_key:  # 새 파일일 때만 정제하고 저장한다
+        try:
+            raw = backend.read_uploaded_csv(uploaded)  # UTF-8로 못 읽으면 seek(0) 후 cp949로 다시 읽는다
+            imported = backend.import_exports(raw)
+        except ValueError as exc:
+            _show_upload_error(uploaded.name, exc)
+            st.stop()
+        st.session_state.upload_result = {"key": upload_key, "raw": raw, "imported": imported}
+        st.session_state.upload_key = upload_key
+
+    upload = st.session_state.upload_result
+    imported = upload["imported"]
+    if imported["clean_rows"] == 0:
+        stored_note = (
+            "아래 화면은 이전에 저장된 수출 자료로 그립니다."
+            if len(imported["exports"]) > 0
+            else "저장된 수출 자료도 없어 아래 지표와 차트가 비어 있을 수 있습니다."
+        )
+        st.warning(
+            f"{uploaded.name}에는 이천시, 청주시의 메모리 반도체(HS 854232) 행이 없어 새로 반영된 자료가 없습니다. "
+            + stored_note
+        )
+    else:
+        st.caption(
+            f"{uploaded.name}: {imported['raw_rows']:,}행 중 {imported['clean_rows']:,}행을 저장된 수출 자료에 반영했습니다."
+        )
+    return upload
+
+
+_UPLOAD_ERROR_HINTS = {
+    "필수 열 누락": "첫 줄의 열 이름에 월(priodTitle 또는 기간), 지역(sggNm 또는 시군구), "
+    "수출금액(expUsdAmt 또는 수출금액)이 모두 있는지 확인해 주세요. 괄호 안 '원자료 열'이 이 파일에서 읽은 열입니다.",
+    "월 형식 오류": "월 값은 2026.08, 2026-08, 202608처럼 연도 4자리와 월이 함께 있어야 합니다.",
+    "지역 형식 오류": "지역 열에 '경기도 이천시', '충청북도 청주시'처럼 이천시나 청주시 행이 있는지 확인해 주세요.",
+    "빈 파일": "파일이 비어 있습니다. 내려받기가 끝난 파일인지 확인해 주세요.",
+    "인코딩 오류": "엑셀에서 '다른 이름으로 저장 > CSV UTF-8(쉼표로 분리)'로 다시 저장해 주세요.",
+    "CSV 형식 오류": "쉼표로 구분된 CSV인지 확인해 주세요. 엑셀 파일(.xlsx)의 확장자만 바꾼 파일은 읽을 수 없습니다.",
+}
+
+
+def _show_upload_error(file_name: str, exc: ValueError) -> None:
+    """처리할 수 없는 CSV의 원인 한 줄과 고치는 방법을 보여 준다 (backend 메시지 앞머리로 안내를 고른다)."""
+    message = str(exc)
+    hint = next(
+        (text for prefix, text in _UPLOAD_ERROR_HINTS.items() if message.startswith(prefix)),
+        "파일 내용과 형식을 확인해 주세요.",
+    )
+    st.error(f"**{file_name}** 파일을 처리하지 못했습니다.\n\n원인: {message}", icon="🚫")
+    st.markdown(f"- 고치는 방법: {hint}\n- 이 파일의 내용은 저장하지 않았습니다. 고친 파일을 다시 올려 주세요.")
 
 
 # =============================================================================
