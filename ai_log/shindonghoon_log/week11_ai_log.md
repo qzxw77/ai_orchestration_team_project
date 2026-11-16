@@ -2,7 +2,7 @@
 
 - 대상 파일: `alt_backend_week11/app.py`의 `render_forecast(upload)` (B 구역)
 - 브랜치: `feat/forecast-donghoon`
-- 관련 커밋: 프롬프트 기록 `<해시>` → AI 생성본 `<해시>` → 수정 `<해시>` … (커밋 후 채움)
+- 관련 커밋: 프롬프트 기록 `<해시>` → AI 생성본 `<해시>` → 수정 `1b0aacd`, `810a4d6`, `a5470f3`, `2b78a90` → 과정 기록 `docs:` 커밋
 - 과제에서 채우는 항목: 사이드바 필터(대상 분기 selectbox), `st.metric` 2개 이상
 
 ---
@@ -100,8 +100,8 @@ upload: A 구역 load_upload()의 반환값. 이 함수에서는 upload["key"]�
 
 ## 2. 생성 코드
 
-- 생성 도구: Claude (1차 프롬프트 그대로 입력)
-- 생성본 커밋: `copilot` (고치지 않고 그대로 커밋해 보존)
+- 생성 도구: copilot (1차 프롬프트 그대로 입력)
+- 생성본 커밋: `be8b205` (고치지 않고 그대로 커밋해 보존)
 - 코드 요지: `render_forecast` 본문과 보조 함수 3개(`_select_forecast_quarter`, `_show_forecast_metrics`, `_show_forecast_error`)
   - **사이드바 selectbox:** 라벨 "대상 분기 (매출을 추정할 분기)", key `forecast_quarter`. 목록은 `list_target_quarters()`, 기본값은 `default_target_quarter()`. 기본값이 목록에 없으면 첫 번째 분기를 고른다.
   - **session_state:** `forecast_cache_key`(마지막 (업로드 key, 분기)), `forecast_result`(그 결과). `if "forecast_cache_key" not in st.session_state:` 관용구로 초기화하고, 키가 같으면 `run_forecast`를 다시 부르지 않는다. 오류가 나면 보관하지 않는다.
@@ -239,21 +239,54 @@ def _show_forecast_error(quarter: str, exc: Exception) -> None:
 
 ## 5. 수동 검증 시나리오 결과
 
-> 작성 예정. `alt_backend_week11` 폴더에서 `streamlit run app.py`를 실행하고, `samples/exports_normal.csv`를 올린 상태에서 확인한다.
+`alt_backend_week11` 폴더에서 `streamlit run app.py`를 실행하고, fix 4개를 모두 반영한 코드로 확인했다.
 
-- 실행 환경: Streamlit `<버전>`, Python `<버전>`
-- 공통 조건: `data/fx.csv` 있음, ANTHROPIC_API_KEY `<있음/없음>`
+- 실행 환경: Windows, Streamlit `1.67.0`, Python `3.13.14`
+- 공통 조건: `data/fx.csv` 있음(ECOS API 키로 `python backend.py`를 실행해 직접 받음), ANTHROPIC_API_KEY 없음(브리프는 `[MOCK]`), 업로드 파일 `samples/exports_normal.csv`
+
+### 5-1. B 구역 확인 시나리오 (프롬프트의 '통과해야 할 확인')
 
 | 번호 | 시나리오 | 기대 결과 | 실제 결과 | 캡처 |
 |---|---|---|---|---|
-| 1 | 사이드바에서 분기 바꾸기 | 지표가 바로 바뀜 | | |
-| 2 | 2024Q1 선택 | 숫자 대신 "비교할 과거 실적 부족" 안내, 앱은 그대로 | | |
-| 3 | `data/actuals.csv` 이름을 잠시 바꿈 | `st.error` 안내, 다른 구역은 그대로 | | |
-| 4 | 같은 파일, 같은 분기에서 C 구역 슬라이더만 움직임 | `data/forecasts.csv` 행 수가 늘지 않음 | | |
-| 5 | `python backend.py --no-refresh --quarter <분기>`와 비교 | 지표 숫자가 같음 | | |
+| 1 | 사이드바에서 분기 바꾸기 (`2026Q4` → `2026Q3`) | 지표가 바로 바뀜 | 분기를 바꾸자 지표 4개가 바로 바뀌었다. `2026Q4` 예상 매출 `○○조 원` → `2026Q3` `○○조 원` | `b1_quarter_change.png` |
+| 2 | 2024Q1 선택 | 숫자 대신 "비교할 과거 실적 부족" 안내, 앱은 그대로 | 노란 상자에 "2024Q1 매출은 아직 추정할 수 없습니다." + "비교할 과거 실적이 4개 분기보다 적어 매출을 추정할 수 없습니다."가 나오고 지표는 그려지지 않았다. fx.csv 확인 안내(no_data 전용)는 나오지 않았다. | `b2_2024q1.png` |
+| 3 | `data/actuals.csv`를 `actuals.bak`으로 바꾸고 '최신 자료로 다시 예측' 클릭 | `st.error` 안내, 다른 구역은 그대로 | 빨간 상자에 "확정 분기 매출 파일(data/actuals.csv)을 찾을 수 없습니다"가 나오고 PC 경로는 보이지 않았다. 아래 수출 차트와 원본 표는 그대로 그려졌다. 이름을 되돌리고 버튼을 다시 누르자 숫자가 돌아왔다. | `b3_no_actuals.png` |
+| 4 | 같은 파일, 같은 분기에서 다시 실행(R 키) | `data/forecasts.csv` 행 수가 늘지 않음 | 다시 실행 전 `4`행 → 후 `4`행으로 같았다. 내 브랜치에는 C 구역 슬라이더가 아직 없어, 위젯 조작과 똑같이 스크립트 전체를 다시 실행하는 R 키(Rerun)로 대신했다. | `b4_rerun_rows.png` |
+| 5 | `python backend.py --no-refresh --quarter <분기>`와 비교 | 지표 숫자가 같음 | CLI 출력의 예상 매출 `77.7조 원`, 범위 `56~99.7조 원`, 직전 분기 대비 `-25.7%`가 화면 지표와 같았다. | `b5_cli_compare.png` |
+
+![분기 변경](img/b1_quarter_change.png)
+![2024Q1 선택](img/b2_2024q1.png)
+![actuals.csv 없음](img/b3_no_actuals.png)
+![다시 실행 전후 행 수](img/b4_rerun_rows.png)
+![CLI 출력과 비교](img/b5_cli_compare.png)
+
+### 5-2. 과제 공통 시나리오에서 B 구역 동작
+
+팀 제출용 수동 검증 3종은 모든 PR이 머지된 뒤 강민규 님이 기록한다. 아래는 내 브랜치(main의 A 구역 포함)에서 B 구역이 어떻게 동작하는지 확인한 것이다.
+
+| # | 시나리오 | 입력 파일 | 기대 결과 | 실제 결과 | 캡처 |
+|---|---|---|---|---|---|
+| ① | 정상 CSV | `samples/exports_normal.csv` | B 구역 지표 4개 표시 | `<분기>` 예상 매출 `○○조 원`, 범위 `○○~○○조 원`, 직전 분기 대비 `○○%`, 반영 `○개월` | `s1_normal.png` |
+| ② | cp949 CSV | `samples/exports_cp949.csv` | 오류 없이 ①과 같은 결과 | ①과 같은 숫자가 나왔다. 파일이 바뀌어 업로드 key(이름, 크기)가 달라지므로 예측을 한 번 새로 실행했다. | `s2_cp949.png` |
+| ③ | 열 누락 CSV | `samples/missing_column.csv` | 앱이 죽지 않고 안내 | A 구역이 "필수 열 누락" 안내 후 `st.stop()`으로 멈춰, B 구역(사이드바 분기 선택 포함)은 그려지지 않았다. Traceback은 없었다. | `s3_missing_column.png` |
+
+![정상 CSV](img/s1_normal.png)
+![cp949 CSV](img/s2_cp949.png)
+![열 누락 CSV](img/s3_missing_column.png)
+
+- ②에서 숫자가 ①과 같다는 것은 cp949로 읽은 자료가 UTF-8과 똑같이 정제되어 예측까지 이어졌다는 뜻이다.
+- ③에서 B 구역이 아예 나오지 않는 것은 A 구역 계약("처리할 수 없으면 None 대신 `st.stop()`")대로다. 그래서 B는 upload가 None인 경우를 따로 처리하지 않는다.
 
 ---
 
 ## 6. 판단 메모
 
-> 작성 예정. 디자인 의도 한 줄(왜 이렇게 보여 줬는지)과, 고민했지만 하지 않은 것을 적는다.
+- **디자인 의도:** 지표 4개(예상 매출, 예상 범위, 직전 분기 대비, 반영된 수출 개월)를 한 줄에 두어, "얼마이고, 어느 범위이고, 지난 분기보다 얼마나 달라지고, 몇 개월 자료로 계산했는지"를 한눈에 읽게 했다. 계산 방법은 화면을 복잡하게 하지 않도록 help 툴팁으로 옮겼다.
+- **session_state를 쓴 이유 (README 담당에게 전달):** Streamlit은 위젯을 조작할 때마다 스크립트 전체를 다시 실행하므로, 그대로 두면 다른 구역의 필터만 움직여도 `run_forecast`가 다시 불려 `data/forecasts.csv`에 같은 기록이 쌓이고 LLM도 다시 호출된다. 그래서 마지막으로 실행한 (업로드 key, 분기)와 결과를 `forecast_cache_key`, `forecast_result`에 보관하고, 둘이 같으면 보관한 결과를 쓴다.
+- **캐시와 최신성의 충돌:** 프롬프트에 "다시 실행하지 않기"와 "파일을 바꾸면 안내가 나와야 한다"를 함께 넣었는데, 둘이 부딪힌다는 것을 생성 코드를 실행하고서야 알았다(문제 1). 다음에는 캐시를 요구할 때 "무엇이 바뀌면 캐시를 버려야 하는지"까지 프롬프트에 적는다.
+- **버튼 방식을 고른 이유:** 파일 수정 시각으로 자동 감지하면 더 편하지만 `os` import가 필요하고, 팀 규칙상 import 추가는 합의가 먼저다. 이번 주는 규칙 안에서 버튼으로 해결하고, 자동 감지는 12주차 UX 개선 때 제안한다.
+- **백엔드 문제는 화면에서 안내만 했다:** 문제 4의 no_data 문장은 backend가 수출과 환율 부족을 구분하지 않아서 생긴다. backend는 이번 주 조현모 님만 고치기로 해서, 화면에는 확인할 곳만 덧붙이고 "no_data 원인을 수출, 환율로 나눠 달라"는 요청을 팀 채팅에 남긴다.
+- **남은 한계:**
+  - 보관하는 결과가 하나뿐이라, A 분기 → B 분기 → A 분기로 돌아오면 다시 실행되어 `forecasts.csv`에 행이 하나 더 생긴다.
+  - '최신 자료로 다시 예측'을 누를 때마다 기록이 한 줄씩 늘어난다(의도한 동작).
+  - 이런 부분은 12주차 UX 최적화 때 다시 본다.
