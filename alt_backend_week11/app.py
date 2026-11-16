@@ -216,11 +216,13 @@ def _show_forecast_metrics(facts: dict) -> None:
 
 def _show_forecast_error(quarter: str, exc: Exception) -> None:
     """run_forecast가 낸 오류의 원인과 확인할 곳을 보여 준다."""
-    st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: {exc}", icon="🚫")
-    if isinstance(exc, FileNotFoundError):
-        st.markdown("- 확인할 곳: `data/actuals.csv`(확정 분기 매출) 파일이 week11 폴더의 data 안에 있는지 확인해 주세요.")
-    else:
+    if isinstance(exc, FileNotFoundError):  # 원문에는 PC의 전체 경로와 영어 문장이 들어 있어 그대로 보여 주지 않는다
+        st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: 확정 분기 매출 파일(data/actuals.csv)을 찾을 수 없습니다.", icon="🚫")
+        st.markdown("- 확인할 곳: week11 폴더의 `data` 안에 `actuals.csv`가 있는지, 이름이 바뀌지 않았는지 확인해 주세요.")
+    else:  # backend의 ValueError 문장은 '필수 열 누락: ...'처럼 한국어 한 줄이라 그대로 보여 준다
+        st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: {exc}", icon="🚫")
         st.markdown("- 확인할 곳: `data/actuals.csv`의 형식이나 `data/transcripts/`의 컨콜 파일 인코딩을 확인해 주세요.")
+    st.markdown("- 파일을 고친 뒤 사이드바의 '최신 자료로 다시 예측'을 눌러 주세요.")
 
 
 
