@@ -174,7 +174,7 @@ def render_forecast(upload: dict) -> dict | None:
         st.session_state.forecast_result = result
 
     if result["status"] != "ok":
-        st.warning(f"**{quarter}는 아직 매출을 추정할 수 없습니다.**\n\n{result['brief']}")
+        st.warning(f"**{quarter} 매출은 아직 추정할 수 없습니다.**\n\n{result['brief']}")
         return result
 
     _show_forecast_metrics(result["facts"])
