@@ -172,16 +172,62 @@ def render_details(upload: dict, result: dict | None) -> None:
     계약:
         upload: load_upload()의 반환값
         result: render_forecast()의 반환값. None이면 예측에 딸린 부분(브리프, 분기 집계, 예측 이력)은 건너뛴다
-
-    담당자가 할 일 (지금 본문은 임시 최소 구현):
-        - 브리프: result["brief"]. ANTHROPIC_API_KEY가 없으면 문장 앞에 [MOCK]이 붙는다는 것도 안내
-        - st.dataframe 원본 표: upload["raw"] (과제 필수 항목)
-        - 정제 표: backend.exports_display_table(upload["imported"]["exports"])
-        - 분기 집계와 예측 이력: backend.quarterly_display_table(result["quarterly"]),
-          backend.history_display_table(result["history"])
-        - st.tabs나 st.expander로 화면 정리
     """
-    st.dataframe(upload["raw"])
+    st.subheader("브리프와 상세 자료")
+    if result is None:
+        st.info("예측을 실행하지 못해 브리프, 분기 집계, 예측 이력은 보여 줄 수 없습니다.")
+    elif result["status"] == "ok":
+        brief = result["brief"]
+        with st.container(border=True):
+            st.markdown(f"**{result['target_quarter']} 요약 브리프**")
+            st.markdown(brief.replace("~", "\\~"))
+            if brief.startswith("[MOCK]"):
+                st.caption(
+                    "[MOCK]은 ANTHROPIC_API_KEY가 없어 정해진 문장 틀로 만든 예시 문장이라는 표시입니다. "
+                    "13주차에 실제 LLM 문장으로 바뀝니다."
+                )
+
+    tab_clean, tab_quarter, tab_history, tab_raw = st.tabs(["정제된 수출 자료", "분기 집계", "예측 이력", "올린 원본 CSV"])
+    
+    with tab_clean:
+        st.caption("이천시, 청주시 HS 854232 월별 수출입니다. 저장돼 있던 자료와 이번 업로드를 합친 전체입니다.")
+        st.dataframe(backend.exports_display_table(upload["imported"]["exports"]), hide_index=True)
+        
+    with tab_quarter:
+        if result is None:
+            st.info("예측 결과가 없어 분기 집계를 보여 줄 수 없습니다.")
+        else:
+            st.caption("두 지역 수출이 모두 있는 달만 더한 분기 합계와, 그 분기의 평균 환율입니다.")
+            st.dataframe(backend.quarterly_display_table(result["quarterly"]), hide_index=True)
+            
+    with tab_history:
+        if result is None:
+            st.info("예측 결과가 없어 예측 이력을 보여 줄 수 없습니다.")
+        else:
+            st.caption(f"{result['target_quarter']} 예측을 언제 어떻게 했는지 보여 줍니다. 같은 날 다시 실행하면 그날 값은 덮어씁니다.")
+            st.dataframe(backend.history_display_table(result["history"]), hide_index=True)
+            
+    with tab_raw:
+        st.caption("올린 CSV를 가공하지 않고 그대로 보여 줍니다. 다른 지역, 다른 품목 행도 들어 있습니다.")
+        st.dataframe(upload["raw"], column_config=_raw_column_labels(upload["raw"]), hide_index=True)
+
+
+_RAW_LABELS = {
+    "priodTitle": "기간",
+    "sggNm": "시군구",
+    "hsSgn": "HS 코드",
+    "korePrlstNm": "품목명",
+    "expCnt": "수출 건수",
+    "expUsdAmt": "수출금액(천 달러)",
+    "impCnt": "수입 건수",
+    "impUsdAmt": "수입금액(천 달러)",
+    "cmtrBlncAmt": "무역수지(천 달러)",
+    "collected_at": "수집일",
+}
+
+def _raw_column_labels(raw: object) -> dict[str, str]:
+    """원본 표의 열 중 알고 있는 관세청 열에만 '표시 이름 (원래 이름)'을 붙인다."""
+    return {column: f"{label} ({column})" for column, label in _RAW_LABELS.items() if column in raw.columns}
 
 
 # =============================================================================
