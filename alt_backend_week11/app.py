@@ -141,7 +141,8 @@ def render_forecast(upload: dict) -> dict | None:
           data/forecasts.csv에 같은 기록이 쌓이고 LLM을 다시 부르지 않기 위해서다.
         - 예측할 수 없는 분기(status가 "ok"가 아님)는 숫자 대신 result["brief"]의 안내 문장을 보여 준다.
         - run_forecast의 ValueError, FileNotFoundError는 st.error로 안내하고 None을 돌려준다.
-          오류 결과는 보관하지 않아, 파일을 고친 뒤 다시 실행하면 새로 예측한다.
+        -오류가 나면 보관한 결과도 비워, 다른 위젯을 움직였을 때 예전 숫자가 다시 보이지 않게 한다.
+        - 보관한 결과는 data 폴더의 파일이 바뀐 것을 모르므로, 사이드바 '최신 자료로 다시 예측' 버튼으로 새로 실행한다.  
     """
     st.subheader("매출 예측")
     if "forecast_cache_key" not in st.session_state:  # 초기화 관용구: 세션에서 처음 한 번만 만든다
@@ -149,15 +150,26 @@ def render_forecast(upload: dict) -> dict | None:
         st.session_state.forecast_result = None
 
     quarter = _select_forecast_quarter()
+    refresh = st.sidebar.button(
+        "최신 자료로 다시 예측",
+        key="forecast_refresh",
+        help="data 폴더의 확정 매출(actuals.csv)이나 환율(fx.csv)을 바꿨을 때 눌러 주세요. "
+        "같은 분기는 다시 계산하지 않고 보관한 결과를 보여 주기 때문입니다.",
+    )
     cache_key = (upload["key"], quarter)
-    if st.session_state.forecast_cache_key == cache_key:  # 같은 업로드, 같은 분기면 보관한 결과를 쓴다
+    if st.session_state.forecast_cache_key == cache_key and not refresh:  # 같은 업로드, 같은 분기면 보관한 결과를 쓴다
+    
         result = st.session_state.forecast_result
     else:
         try:
             result = backend.run_forecast(quarter)
         except (ValueError, FileNotFoundError) as exc:
+            st.session_state.forecast_cache_key = None  # 예전 결과가 다시 보이지 않게 비운다
+            
+            st.session_state.forecast_result = None
             _show_forecast_error(quarter, exc)
             return None
+        
         st.session_state.forecast_cache_key = cache_key
         st.session_state.forecast_result = result
 
