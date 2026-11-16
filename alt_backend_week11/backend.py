@@ -260,7 +260,7 @@ def read_uploaded_csv(source: object) -> pd.DataFrame:
         모든 값이 문자열인 원자료 표 (빈칸은 "").
 
     Raises:
-        ValueError: 화면에 그대로 보여 줄 수 있는 한국어 메시지로 바꿔 낸다(원래 예외는 __cause__에 남긴다).
+        ValueError: 원인만 담은 한국어 메시지로 바꿔 낸다(고치는 방법은 화면이 붙인다. 원래 예외는 __cause__).
             "빈 파일: ..." 내용이 없는 파일
             "인코딩 오류: ..." UTF-8, cp949 모두로 읽을 수 없는 파일 (UTF-16 등)
             "CSV 형식 오류: ..." 쉼표 구분이 맞지 않는 파일
@@ -273,12 +273,9 @@ def read_uploaded_csv(source: object) -> pd.DataFrame:
                 source.seek(0)
             return pd.read_csv(source, dtype=str, keep_default_na=False, encoding="cp949")
     except pd.errors.EmptyDataError as exc:
-        raise ValueError("빈 파일: 파일에 내용이 없습니다. 첫 줄에 열 이름이 있는 CSV인지 확인해 주세요.") from exc
+        raise ValueError("빈 파일: 파일에 내용이 없습니다.") from exc
     except UnicodeDecodeError as exc:
-        raise ValueError(
-            "인코딩 오류: UTF-8과 cp949(엑셀 기본 CSV)로 모두 읽을 수 없습니다. "
-            "엑셀에서 'CSV UTF-8(쉼표로 분리)' 형식으로 다시 저장해 주세요."
-        ) from exc
+        raise ValueError("인코딩 오류: UTF-8과 cp949(엑셀 기본 CSV)로 모두 읽을 수 없습니다 (UTF-16 등).") from exc
     except pd.errors.ParserError as exc:
         raise ValueError(f"CSV 형식 오류: 쉼표로 구분된 표로 읽을 수 없습니다 ({exc})") from exc
 
