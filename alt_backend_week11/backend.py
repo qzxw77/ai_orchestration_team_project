@@ -260,23 +260,33 @@ def read_uploaded_csv(source: object) -> pd.DataFrame:
         모든 값이 문자열인 원자료 표 (빈칸은 "").
 
     Raises:
-        ValueError: 두 인코딩 모두 실패, 빈 파일, CSV 형식 오류 (pandas 오류는 ValueError의 하위 클래스).
+        ValueError: 원인만 담은 한국어 메시지로 바꿔 낸다(고치는 방법은 화면이 붙인다. 원래 예외는 __cause__).
+            "빈 파일: ..." 내용이 없는 파일
+            "인코딩 오류: ..." UTF-8, cp949 모두로 읽을 수 없는 파일 (UTF-16 등)
+            "CSV 형식 오류: ..." 쉼표 구분이 맞지 않는 파일
     """
     try:
-        return pd.read_csv(source, dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        if hasattr(source, "seek"):
-            source.seek(0)
-        return pd.read_csv(source, dtype=str, keep_default_na=False, encoding="cp949")
+        try:
+            return pd.read_csv(source, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            if hasattr(source, "seek"):
+                source.seek(0)
+            return pd.read_csv(source, dtype=str, keep_default_na=False, encoding="cp949")
+    except pd.errors.EmptyDataError as exc:
+        raise ValueError("빈 파일: 파일에 내용이 없습니다.") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError("인코딩 오류: UTF-8과 cp949(엑셀 기본 CSV)로 모두 읽을 수 없습니다 (UTF-16 등).") from exc
+    except pd.errors.ParserError as exc:
+        raise ValueError(f"CSV 형식 오류: 쉼표로 구분된 표로 읽을 수 없습니다 ({exc})") from exc
 
 
 def import_exports(raw_df: pd.DataFrame, data_dir: Path = DEFAULT_DATA_DIR, today: date | None = None) -> dict:
     """[CSV로 갱신] 올린 수출 원자료(K-stat 등)를 정제해 저장된 exports 표와 합치고 저장한다.
 
-    collected_at 열이 없으면 올린 날짜로 채운다.
+    collected_at 열이 없으면 정제 후 올린 날짜로 채운다(오류 메시지에는 올린 열만 나온다).
 
     Args:
-        raw_df: read_uploaded_csv 결과.
+        raw_df: read_uploaded_csv 결과. 바꾸지 않는다.
         data_dir: data 폴더 경로.
         today: collected_at으로 쓸 날짜. None이면 오늘.
 
@@ -289,10 +299,12 @@ def import_exports(raw_df: pd.DataFrame, data_dir: Path = DEFAULT_DATA_DIR, toda
     Raises:
         ValueError: "필수 열 누락: ..." (clean_exports). 저장하지 않는다.
     """
-    raw = raw_df.copy()
-    if data_loader.COLLECTED_AT_COLUMN not in raw.columns:
-        raw[data_loader.COLLECTED_AT_COLUMN] = (today or date.today()).strftime("%Y-%m-%d")
-    new_exports = preprocess.clean_exports(raw)
+    # collected_at은 정제한 뒤에 채운다. 정제 전에 열을 붙이면 '필수 열 누락' 메시지의 '원자료 열'에
+    # 사용자가 올리지 않은 collected_at이 섞여 나온다. 열이 없을 때 clean_exports는 모든 행을 같은 수집일로 보므로
+    # 정제 결과(중복 처리 포함)는 정제 전에 채우던 때와 같다.
+    new_exports = preprocess.clean_exports(raw_df)
+    if data_loader.COLLECTED_AT_COLUMN not in {str(column).strip() for column in raw_df.columns}:
+        new_exports[data_loader.COLLECTED_AT_COLUMN] = (today or date.today()).strftime("%Y-%m-%d")
     stored = read_exports(data_dir)
     exports = preprocess.upsert_records(stored, new_exports, EXPORTS_KEY_COLUMNS)
     _write_table(exports, _paths(data_dir)["exports"])
