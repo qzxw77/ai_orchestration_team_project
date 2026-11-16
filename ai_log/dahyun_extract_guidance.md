@@ -1,0 +1,24 @@
+[2026-11-09] extract_guidance 구현 및 schema.md 규격 반영 리팩터링 (담당: 이다현)
+- 대상 모듈: llm_module.py / 관련 함수: extract_guidance, _call_llm, _mock_response, _mock_guidance, _mock_brief, _call_real
+- 
+- 초기 프롬프트(요지): 설계 문서 V1과 구현 가이드의 Pseudocode·공통 제약 조건을 바탕으로 모듈 4의 `extract_guidance(transcript_text)` 및 내부 도우미 함수(`_call_llm`, `_mock_guidance`, `_mock_brief`)를 구현하도록 요청. 문서에 명시되지 않은 담당자 재량 사항(상수명, 코드 블록 제거 방식, 정규식 부호·소수점 허용 여부)을 먼저 질의응답으로 확정한 뒤 구현하고, 최신 표준 스키마 문서(`schema.md`)의 변경 규칙(`[V1 변경]`)과 대조해 어긋나는 부분을 전수 수정하게 함.
+- AI 생성 결과(요지):
+  - 초기 버전(V1 기준): `extract_guidance` 본문 및 `os.getenv("LLM_MODE")` 기반의 `_call_llm`, `_mock_guidance`, `_mock_brief` 구현. 불리언(`True`/`False`)·`NaN`·`inf` 숫자 방어, `re.fullmatch` 기반 `"YYYYQn"` 검증, `json.loads` 후 `dict` 객체 여부 검증 포함.
+  - 수정 버전(`schema.md` 반영): V1 대비 변경된 최신 규칙 6가지를 반영하여 재구성. (1) 모드 스위치를 `USE_MOCK = True` 상수로 변경, (2) mock 응답의 `hbm_comment`·`evidence`·브리프 문장 앞에 `"[MOCK] "` 표식 추가(100자 제한은 표식 포함 길이로 적용), (3) `re.ASCII` 및 `isascii()`로 전각 숫자 차단, (4) 허용값 문자열(`STATUS_*`, `OUTLOOK_*`) 상수화, (5) `_new_default_guidance()`로 호출마다 신규 dict 생성, (6) 포괄적 `except Exception:` 제거 및 구체적 예외 처리 적용.
+- 발견한 문제: V1 구현 가이드 기준으로 작성된 초기 코드를 최신 `schema.md`(2026-11-09)와 대조한 결과, 통합 테스트 및 계약 위반이 발생할 수 있는 차이점 6건 발견
+  - 모드 전환 방식 불일치: V1의 `LLM_MODE` 환경변수 분기가 `schema.md` 5.1절에서 파일 상단 상수 `USE_MOCK = True` 방식으로 변경됨.
+  - `[MOCK] ` 표식 누락: `schema.md` 4.3절·5.1절·8장 14번에 따라 mock 응답 문장 앞에 `"[MOCK] "`을 붙여야 하나 초기 코드에는 미반영 상태였음.
+  - 전각 숫자 통과 위험: 파이썬 기본 `\d` 정규식이 전각 숫자(`"２０２６"`)를 허용하므로 `re.ASCII` 및 `isascii()` 검사가 필요했음.
+  - 문자열 하드코딩 및 예외 처리 규칙: 허용값 문자열 상수화(1.3절 4번)와 `except Exception:` 사용 금지 규칙(1.4절) 준수를 위해 수정이 필요했음.
+- 수정 내역: `schema.md` 대조 과정에서 발견한 6가지 변경 사항을 모두 반영한 최종 코드로 채택. `extract_guidance` 본문과 `_call_llm`·`_mock_*` 도우미를 다른 파일로 분리하지 않고 모듈 간 import 금지 규약에 따라 `llm_module.py` 단일 파일에 통합 배치.
+- 검증: 설계 문서 파트 4 테스트 명세(T12~T16) 및 `schema.md` 형식 계약 기준 정적·논리 검증 완료
+  - 확인 항목:
+    - T12~T13(정상): `"YYYY년 N분기"` → `"YYYYQn"` 변환, D램·낸드 출하 증가율(부호·소수점 포함) 문장 내 추출, `price_outlook` 판정, `hbm_comment` 100자 제한 및 `evidence` 최대 3개 추출, mock 모드 시 `"[MOCK] "` 표식 부착 확인.
+    - T14(경계): `None` 또는 공백 문자열 입력 시 `_call_llm` 호출 없이 즉시 `status="empty_input"` 및 기본값 반환 확인.
+    - T15(예외): `_call_llm`이 비JSON 문자열이나 빈 문자열을 반환할 때 예외 없이 `status="parse_error"` 및 기본값(`price_outlook="NA"`) 반환 확인.
+    - T16(예외): 범위 밖 숫자(`250`), 문자열 숫자(`"많이"`), `bool`(`True`), 허용값 외 전망(`"폭등"`), 4개 이상 `evidence` 입력 시 각각 `None`, `"NA"`, 최대 3개 슬라이싱으로 정규화되어 `status="ok"` 반환 확인.
+- 판단 메모:
+  - 추출 실패(`"NA"`)와 언급 없음(`"언급없음"`)의 엄격한 분리: 파싱 실패나 허용값 외 문자열이 들어왔을 때 `"언급없음"`으로 덮어쓰면 실제 가이던스 부재와 구분이 불가능해지므로 반드시 `"NA"`로 처리하도록 유지함.
+  - 소수점 문장 분리 보호: `_mock_guidance`에서 마침표(`.`) 기준으로 문장을 나눌 때 `"10.5%"` 같은 소수점이 쪼개지지 않도록 전후방 탐색 정규식(`(?<![0-9])\.(?![0-9])`)을 적용함.
+  - 13주차 실제 API 전환 대비: `_call_llm` 내부를 `USE_MOCK` 상수 분기(`_mock_response` / `_call_real`)로 깔끔히 분리해 두어, 추후 상수 값만 `False`로 바꾸면 JSON 파싱 및 유효성 검증 로직(T12~T16)을 수정 없이 그대로 재사용할 수 있도록 설계함.
+  - 다음 프롬프트에 반영: 코드 생성 전 반드시 최신 버전의 팀 표준 문서(`schema.md`)를 먼저 제공하여 V1 초안과의 변경 사항(`[V1 변경]`)이 한 번에 반영되도록 한다.
