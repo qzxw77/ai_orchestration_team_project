@@ -20,7 +20,7 @@ import streamlit as st
 import backend
 
 st.set_page_config(page_title="알트(ALT) 대시보드", layout="wide")
-# 공통 CSS (UI 초안 feat/week11-ui-draft에서 가져옴): 연회색 배경, 흰 카드형 지표, 결론 배너, 점선 빈자리 카드
+# 공통 CSS (UI 초안 feat/week11-ui-draft에서 가져옴): 연회색 배경, 흰 카드형 지표, 결론 배너
 st.markdown(
     """
 <style>
@@ -31,13 +31,12 @@ div[data-testid="stMetric"] {background: #fff; border: 1px solid #E3E6EC; border
 .alt-concl {background: #E7EEFC; border-radius: 12px; padding: 14px 18px; margin: 4px 0 10px;}
 .alt-concl small {color: #2563EB; font-weight: 700;}
 .alt-concl div {font-size: 1.15rem; font-weight: 700; margin-top: 2px;}
-.alt-ph {border: 1.5px dashed #B4BAC5; border-radius: 12px; padding: 12px 16px; min-height: 112px;
-         background: repeating-linear-gradient(135deg, #fff 0 10px, #F6F7F9 10px 20px);}
-.alt-ph .t {font-size: 0.85rem; color: #667085;}
-.alt-ph .pill {font-size: 0.66rem; font-weight: 700; background: #E3E6EC; color: #667085; border-radius: 999px;
-               padding: 2px 8px; margin-left: 6px;}
-.alt-ph .v {font-size: 1.9rem; font-weight: 700; color: #B4BAC5; margin: 2px 0;}
-.alt-ph .c {font-size: 0.75rem; color: #8A93A3;}
+[class*="st-key-forecast_card_"] {background: #fff; border: 1px solid #E3E6EC; border-radius: 12px;
+                                  padding: 12px 16px 14px; gap: 0.35rem;}
+[class*="st-key-forecast_card_"] div[data-testid="stMetric"] {border: none; padding: 0; background: transparent;}
+[class*="st-key-forecast_card_"] div[data-testid="stCaptionContainer"] p {margin: 0;}
+[class*="st-key-forecast_card_rev_"] {min-height: 168px;}
+[class*="st-key-forecast_card_sig_"], [class*="st-key-forecast_card_imp_"] {min-height: 190px;}
 </style>
 """,
     unsafe_allow_html=True,
@@ -166,7 +165,7 @@ def render_forecast(upload: dict) -> dict | None:
         -오류가 나면 보관한 결과도 비워, 다른 위젯을 움직였을 때 예전 숫자가 다시 보이지 않게 한다.
         - 보관한 결과는 data 폴더의 파일이 바뀐 것을 모르므로, 사이드바 '최신 자료로 다시 예측' 버튼으로 새로 실행한다.  
         - 예측이 되면 UI 초안(feat/week11-ui-draft) 구성대로 '핵심 결론' 배너와 세 묶음의 카드를 보여 준다:
-          매출 전망 지표(우리 추정 | 시장 컨센서스), 수출 신호 지표 4개, 주가 영향 판단 4개.
+          매출 전망 지표(우리 추정 | 시장 컨센서스), 수출 신호 지표 3개, 주가 영향 판단 4개.
           숫자와 문장은 모두 result["facts"], result["consensus_facts"]의 표시용 문자열이다
           (data/consensus.csv가 없으면 '—'). 카드 모양은 맨 위 공통 CSS가 정한다.
     """
@@ -252,110 +251,127 @@ def _show_conclusion(result: dict) -> None:
     )
 
 
-def _show_placeholder_card(title: str, value: str, caption: str, pill: str = "준비 중") -> None:
-    """아직 backend 함수가 없는 지표의 점선 빈자리 카드."""
-    st.markdown(
-        f'<div class="alt-ph"><div class="t">{title}<span class="pill">{pill}</span></div>'
-        f'<div class="v">{value}</div><div class="c">{caption}</div></div>',
-        unsafe_allow_html=True,
-    )
+def _show_card(key: str, label: str, value: str, note: str, delta: str | None = None, help: str | None = None) -> None:
+    """설명 문구까지 한 장의 흰 카드 안에 담은 지표 카드. key 접두어(rev_, sig_, imp_)로 묶음별 높이를 맞춘다."""
+    with st.container(key=f"forecast_card_{key}"):
+        st.metric(label, value, delta=delta, help=help)
+        st.caption(note)
 
 
 def _show_revenue_cards(facts: dict, cfacts: dict) -> None:
     """매출 전망 지표: 왼쪽은 우리 추정(예상 매출, 범위), 오른쪽은 시장 컨센서스(컨센서스, 괴리율)."""
     st.markdown("##### 매출 전망 지표")
     st.caption("왼쪽: 우리 추정 · 오른쪽: 시장 컨센서스 (FnGuide 연간 FY1 컨센서스에서 발표된 분기 실적을 빼 구함)")
+    ours, market = st.columns(2)  # 같은 줄(예상 매출 | 컨센서스, 예상 범위 | 괴리율)끼리 높이를 맞춘다
+    with ours:
+        _show_card(
+            "rev_estimate",
+            f"{facts['quarter']} 예상 매출 (중앙값)",
+            facts["estimate"],
+            "수출 × 과거 4개 분기 매출/수출 비율",
+            delta=None if _not_available(facts["qoq"]) else f"{facts['qoq']} 전분기 대비",
+            help="최근 4개 분기의 '매출 ÷ 원화 환산 수출' 비율 평균을 이번 분기 수출에 곱해 추정했습니다.",
+        )
+    with market:
+        _show_card(
+            "rev_consensus",
+            "시장 컨센서스 (대상 분기)",
+            cfacts["consensus_value"],
+            cfacts["consensus_note"],
+            help="4분기는 '연간 컨센서스 − 1~3분기 실적'으로 정확히 구합니다. 1~3분기는 남은 분기에 나눈 근사값(≈)이며 "
+            "균등 분할, 전년 분기 비중, 일정 성장 세 방법의 중앙값입니다.",
+        )
     ours, market = st.columns(2)
-    ours.metric(
-        f"{facts['quarter']} 예상 매출 (중앙값)",
-        facts["estimate"],
-        delta=None if _not_available(facts["qoq"]) else f"{facts['qoq']} 전분기 대비",
-        help="최근 4개 분기의 '매출 ÷ 원화 환산 수출' 비율 평균을 이번 분기 수출에 곱해 추정했습니다.",
-    )
-    ours.caption("수출 × 과거 4개 분기 매출/수출 비율")
-    market.metric(
-        "시장 컨센서스 (대상 분기)",
-        cfacts["consensus_value"],
-        help="4분기는 '연간 컨센서스 − 1~3분기 실적'으로 정확히 구합니다. 1~3분기는 남은 분기에 나눈 근사값(≈)이며 "
-        "균등 분할, 전년 분기 비중, 일정 성장 세 방법의 중앙값입니다.",
-    )
-    market.caption(cfacts["consensus_note"])
-    ours.metric(
-        "예상 범위 (하한 ~ 상한)",
-        facts["range"],
-        help="최근 4개 분기 비율의 최솟값과 최댓값을 적용한 범위입니다.",
-    )
-    ours.caption("기준 분기 비율의 최솟값 ~ 최댓값 적용")
-    market.metric(
-        "예상 괴리율",
-        cfacts["surprise_value"],
-        help="(예상 매출 ÷ 분기 컨센서스 − 1) × 100. 4분기는 ±5%를 넘거나 예상 범위 전체가 컨센서스 위·아래면 "
-        "상회·하회, 1~3분기는 환산 범위를 벗어날 때만 상회·하회로 봅니다.",
-    )
-    market.caption(f"판정: {cfacts['surprise_note']}")  # delta로 넣으면 '하회'에도 ↑ 화살표가 붙어 캡션으로 둔다
+    with ours:
+        _show_card(
+            "rev_range",
+            "예상 범위 (하한 ~ 상한)",
+            facts["range"],
+            "기준 분기 비율의 최솟값 ~ 최댓값 적용",
+            help="최근 4개 분기 비율의 최솟값과 최댓값을 적용한 범위입니다.",
+        )
+    with market:
+        _show_card(
+            "rev_surprise",
+            "예상 괴리율",
+            cfacts["surprise_value"],
+            f"판정: {cfacts['surprise_note']}",  # delta로 넣으면 '하회'에도 ↑ 화살표가 붙어 설명 문구로 둔다
+            help="(예상 매출 ÷ 분기 컨센서스 − 1) × 100. 4분기는 ±5%를 넘거나 예상 범위 전체가 컨센서스 위·아래면 "
+            "상회·하회, 1~3분기는 환산 범위를 벗어날 때만 상회·하회로 봅니다.",
+        )
 
 
 def _show_export_signal_cards(result: dict) -> None:
-    """수출 신호 지표 4개: 수출 증가율(빈자리), 이상치 판정, 반영 개월, 가이던스 일치 여부."""
+    """수출 신호 지표 3개: 이상치 판정, 반영 개월, 가이던스 일치 여부."""
     facts, anomaly, consistency = result["facts"], result["anomaly"] or {}, result["consistency"] or {}
     st.markdown("##### 수출 신호 지표")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        _show_placeholder_card("수출 증가율 · 직전 분기 대비", "—", "backend 함수 추가 후 표시")
+    col1, col2, col3 = st.columns(3)
     z_score = anomaly.get("z_score")
-    col2.metric(
-        "수출 이상치 판정",
-        facts["anomaly"],
-        delta=None if _not_available(facts["export_yoy"]) else f"{facts['export_yoy']} 전년 동월 대비",
-        help="대상 월 수출의 전년 동월 대비 증가율이 직전 12개월의 평소 범위(z ±2)를 벗어났는지 판정합니다.",
-    )
-    col2.caption(
-        f"{result['anomaly_ym']} · z = {z_score:.2f} (기준 ±2.0)"
-        if isinstance(z_score, float)
-        else "판정에 필요한 25개월 자료가 부족합니다"
-    )
+    with col1:
+        _show_card(
+            "sig_anomaly",
+            "수출 이상치 판정",
+            facts["anomaly"],
+            f"{result['anomaly_ym']} · z = {z_score:.2f} (기준 ±2.0)"
+            if isinstance(z_score, float)
+            else "판정에 필요한 25개월 자료가 부족합니다",
+            delta=None if _not_available(facts["export_yoy"]) else f"{facts['export_yoy']} 전년 동월 대비",
+            help="대상 월 수출의 전년 동월 대비 증가율이 직전 12개월의 평소 범위(z ±2)를 벗어났는지 판정합니다.",
+        )
     months = result["forecast"]["months_available"]
-    col3.metric(
-        "반영된 수출 개월",
-        f"{months} / 3",
-        help="이번 분기 3개월 중 수출 자료가 공표된 개월 수입니다. 3개월 미만이면 3개월로 환산했습니다.",
-    )
-    col3.caption("3개월로 환산해 추정" if months < 3 else "3개월 수출이 모두 반영됨")
-    col4.metric(
-        "가이던스 일치 여부",
-        facts["consistency"],
-        help="추정 매출의 전분기 대비 방향과 직전 분기 컨콜 가이던스(D램 기준) 방향이 같은지 비교합니다.",
-    )
-    col4.caption(
-        f"예측 {consistency.get('forecast_direction') or '-'} · 가이던스 {consistency.get('guidance_direction') or '-'}"
-    )
+    with col2:
+        _show_card(
+            "sig_months",
+            "반영된 수출 개월",
+            f"{months} / 3",
+            "3개월로 환산해 추정" if months < 3 else "3개월 수출이 모두 반영됨",
+            help="이번 분기 3개월 중 수출 자료가 공표된 개월 수입니다. 3개월 미만이면 3개월로 환산했습니다.",
+        )
+    with col3:
+        _show_card(
+            "sig_guidance",
+            "가이던스 일치 여부",
+            facts["consistency"],
+            f"예측 {consistency.get('forecast_direction') or '-'} · "
+            f"가이던스 {consistency.get('guidance_direction') or '-'}",
+            help="추정 매출의 전분기 대비 방향과 직전 분기 컨콜 가이던스(D램 기준) 방향이 같은지 비교합니다.",
+        )
 
 
 def _show_price_impact(cfacts: dict) -> None:
     """주가 영향 판단 4개: 컨센서스 분포 안 위치, 1개월 리비전, 주가 영향 방향, 판단 신뢰도."""
     st.markdown("##### 주가 영향 판단")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric(
-        "컨센서스 분포 안 위치",
-        cfacts["dist_value"],
-        help="우리 예상 매출이 애널리스트 최저(0%)~최고(100%) 전망 사이 어디쯤인지 보여 줍니다.",
-    )
-    col1.caption(cfacts["dist_note"])
-    col2.metric(
-        "컨센서스 추세 (1개월)",
-        cfacts["revision_value"],
-        help="연간 매출 컨센서스가 30일 전보다 얼마나 바뀌었는지입니다. 시장 기대가 오르는 중인지 보여 줍니다.",
-    )
-    col2.caption(cfacts["revision_note"])
-    col3.metric(
-        "주가 영향 방향",
-        cfacts["direction_value"],
-        help="상회면 긍정, 하회면 부정입니다. 부합이면 1개월 리비전이 +3% 이상일 때 긍정, −3% 이하일 때 부정, "
-        "그 사이면 중립입니다.",
-    )
-    col3.caption(cfacts["direction_note"])
-    col4.metric("판단 신뢰도", cfacts["confidence_value"], help=cfacts["confidence_help"])
-    col4.caption(cfacts["confidence_note"])
+    with col1:
+        _show_card(
+            "imp_dist",
+            "컨센서스 분포 안 위치",
+            cfacts["dist_value"],
+            cfacts["dist_note"],
+            help="우리 예상 매출이 애널리스트 최저(0%)~최고(100%) 전망 사이 어디쯤인지 보여 줍니다.",
+        )
+    with col2:
+        _show_card(
+            "imp_revision",
+            "컨센서스 추세 (1개월)",
+            cfacts["revision_value"],
+            cfacts["revision_note"],
+            help="연간 매출 컨센서스가 30일 전보다 얼마나 바뀌었는지입니다. 시장 기대가 오르는 중인지 보여 줍니다.",
+        )
+    with col3:
+        _show_card(
+            "imp_direction",
+            "주가 영향 방향",
+            cfacts["direction_value"],
+            cfacts["direction_note"],
+            help="상회면 긍정, 하회면 부정입니다. 부합이면 1개월 리비전이 +3% 이상일 때 긍정, −3% 이하일 때 부정, "
+            "그 사이면 중립입니다.",
+        )
+    with col4:
+        _show_card(
+            "imp_confidence", "판단 신뢰도", cfacts["confidence_value"], cfacts["confidence_note"],
+            help=cfacts["confidence_help"],
+        )
 
 
 def _show_forecast_error(quarter: str, exc: Exception) -> None:
