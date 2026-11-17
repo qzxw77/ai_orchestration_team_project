@@ -133,16 +133,102 @@ def render_forecast(upload: dict) -> dict | None:
         upload: load_upload()의 반환값
         반환: backend.run_forecast의 결과 dict (D 구역이 브리프와 표에 쓴다). 예측을 실행하지 못했으면 None
 
-    담당자가 할 일 (지금 본문은 임시 최소 구현):
-        - 사이드바 selectbox(대상 분기): 목록은 backend.list_target_quarters(), 기본값은 backend.default_target_quarter()
-        - st.metric 2개 이상: result["facts"]의 estimate, range, qoq, months 등 (이미 표시용 문자열)
-        - result["status"]가 "ok"가 아니면 숫자 대신 result["brief"]의 안내 문장을 보여 준다
-        - run_forecast의 ValueError, FileNotFoundError(actuals.csv 문제)는 st.error로 보여 주고 None을 돌려준다
-        - (선택) 같은 분기, 같은 업로드면 다시 실행하지 않도록 session_state에 보관. 넣었다면 README 담당에게 이유를 알린다
+    구현 메모:
+        - 사이드바 selectbox로 대상 분기를 고른다. 목록은 backend.list_target_quarters(),
+          기본값은 backend.default_target_quarter()이다.
+        - session_state의 forecast_cache_key, forecast_result에 마지막으로 실행한 (업로드 key, 분기)와 결과를 둔다.
+          다른 구역의 위젯을 움직여도 스크립트 전체가 다시 실행되는데, 그때마다 run_forecast를 다시 불러
+          data/forecasts.csv에 같은 기록이 쌓이고 LLM을 다시 부르지 않기 위해서다.
+        - 예측할 수 없는 분기(status가 "ok"가 아님)는 숫자 대신 result["brief"]의 안내 문장을 보여 준다.
+        - run_forecast의 ValueError, FileNotFoundError는 st.error로 안내하고 None을 돌려준다.
+        -오류가 나면 보관한 결과도 비워, 다른 위젯을 움직였을 때 예전 숫자가 다시 보이지 않게 한다.
+        - 보관한 결과는 data 폴더의 파일이 바뀐 것을 모르므로, 사이드바 '최신 자료로 다시 예측' 버튼으로 새로 실행한다.  
     """
-    result = backend.run_forecast(backend.default_target_quarter())
-    st.metric("예상 매출", result["facts"]["estimate"])
+    st.subheader("매출 예측")
+    if "forecast_cache_key" not in st.session_state:  # 초기화 관용구: 세션에서 처음 한 번만 만든다
+        st.session_state.forecast_cache_key = None
+        st.session_state.forecast_result = None
+
+    quarter = _select_forecast_quarter()
+    refresh = st.sidebar.button(
+        "최신 자료로 다시 예측",
+        key="forecast_refresh",
+        help="data 폴더의 확정 매출(actuals.csv)이나 환율(fx.csv)을 바꿨을 때 눌러 주세요. "
+        "같은 분기는 다시 계산하지 않고 보관한 결과를 보여 주기 때문입니다.",
+    )
+    cache_key = (upload["key"], quarter)
+    if st.session_state.forecast_cache_key == cache_key and not refresh:  # 같은 업로드, 같은 분기면 보관한 결과를 쓴다
+    
+        result = st.session_state.forecast_result
+    else:
+        try:
+            result = backend.run_forecast(quarter)
+        except (ValueError, FileNotFoundError) as exc:
+            st.session_state.forecast_cache_key = None  # 예전 결과가 다시 보이지 않게 비운다
+            
+            st.session_state.forecast_result = None
+            _show_forecast_error(quarter, exc)
+            return None
+        
+        st.session_state.forecast_cache_key = cache_key
+        st.session_state.forecast_result = result
+
+    if result["status"] != "ok":
+        st.warning(f"**{quarter} 매출은 아직 추정할 수 없습니다.**\n\n{result['brief']}")
+        if result["status"] == "no_data":
+            st.caption(
+                "수출 CSV를 올렸는데도 이 안내가 나오면 환율 자료(data/fx.csv)가 있는지 확인해 주세요. "
+                "예측에는 수출과 환율이 모두 필요합니다."
+            )
+        return result
+
+    _show_forecast_metrics(result["facts"])
     return result
+
+
+def _select_forecast_quarter() -> str:
+    """사이드바에서 대상 분기를 고르게 하고 고른 분기("YYYYQn")를 돌려준다."""
+    quarters = backend.list_target_quarters()
+    default = backend.default_target_quarter()
+    index = quarters.index(default) if default in quarters else 0
+    return st.sidebar.selectbox(
+        "대상 분기 (매출을 추정할 분기)",
+        quarters,
+        index=index,
+        key="forecast_quarter",
+        help="수출 자료가 있는 분기와 진행 중인 분기를 고를 수 있습니다. "
+        "기본값은 이천시와 청주시 수출이 모두 집계된 가장 최근 달의 분기입니다.",
+    )
+
+
+def _show_forecast_metrics(facts: dict) -> None:
+    """facts의 표시용 문자열로 핵심 지표 4개와 판정 한 줄을 보여 준다."""
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(
+        f"{facts['quarter']} 예상 매출",
+        facts["estimate"],
+        help="최근 4개 분기의 '매출 ÷ 원화 환산 수출' 비율 평균을 이번 분기 수출에 곱해 추정했습니다.",
+    )
+    col2.metric("예상 범위", facts["range"], help="최근 4개 분기 비율의 최솟값과 최댓값을 적용한 범위입니다.")
+    col3.metric("직전 분기 대비", facts["qoq"], help="직전 분기 확정 매출과 비교한 예상 매출의 변화율입니다.")
+    col4.metric(
+        "반영된 수출 개월",
+        facts["months"],
+        help="이번 분기 3개월 중 수출 자료가 공표된 개월 수입니다. 3개월 미만이면 3개월로 환산했습니다.",
+    )
+    st.caption(f"수출 이상치 판정: {facts['anomaly']} · 지난 분기 가이던스와 비교: {facts['consistency']}")
+
+
+def _show_forecast_error(quarter: str, exc: Exception) -> None:
+    """run_forecast가 낸 오류의 원인과 확인할 곳을 보여 준다."""
+    if isinstance(exc, FileNotFoundError):  # 원문에는 PC의 전체 경로와 영어 문장이 들어 있어 그대로 보여 주지 않는다
+        st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: 확정 분기 매출 파일(data/actuals.csv)을 찾을 수 없습니다.", icon="🚫")
+        st.markdown("- 확인할 곳: week11 폴더의 `data` 안에 `actuals.csv`가 있는지, 이름이 바뀌지 않았는지 확인해 주세요.")
+    else:  # backend의 ValueError 문장은 '필수 열 누락: ...'처럼 한국어 한 줄이라 그대로 보여 준다
+        st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: {exc}", icon="🚫")
+        st.markdown("- 확인할 곳: `data/actuals.csv`의 형식이나 `data/transcripts/`의 컨콜 파일 인코딩을 확인해 주세요.")
+    st.markdown("- 파일을 고친 뒤 사이드바의 '최신 자료로 다시 예측'을 눌러 주세요.")
+
 
 
 # =============================================================================
