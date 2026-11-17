@@ -20,6 +20,28 @@ import streamlit as st
 import backend
 
 st.set_page_config(page_title="알트(ALT) 대시보드", layout="wide")
+# 공통 CSS (UI 초안 feat/week11-ui-draft에서 가져옴): 연회색 배경, 흰 카드형 지표, 결론 배너, 점선 빈자리 카드
+st.markdown(
+    """
+<style>
+.block-container {padding-top: 3rem; max-width: 1180px;}
+.stApp {background: #F6F7FA;}
+section[data-testid="stSidebar"] {background: #EFF1F5;}
+div[data-testid="stMetric"] {background: #fff; border: 1px solid #E3E6EC; border-radius: 12px; padding: 12px 16px;}
+.alt-concl {background: #E7EEFC; border-radius: 12px; padding: 14px 18px; margin: 4px 0 10px;}
+.alt-concl small {color: #2563EB; font-weight: 700;}
+.alt-concl div {font-size: 1.15rem; font-weight: 700; margin-top: 2px;}
+.alt-ph {border: 1.5px dashed #B4BAC5; border-radius: 12px; padding: 12px 16px; min-height: 112px;
+         background: repeating-linear-gradient(135deg, #fff 0 10px, #F6F7F9 10px 20px);}
+.alt-ph .t {font-size: 0.85rem; color: #667085;}
+.alt-ph .pill {font-size: 0.66rem; font-weight: 700; background: #E3E6EC; color: #667085; border-radius: 999px;
+               padding: 2px 8px; margin-left: 6px;}
+.alt-ph .v {font-size: 1.9rem; font-weight: 700; color: #B4BAC5; margin: 2px 0;}
+.alt-ph .c {font-size: 0.75rem; color: #8A93A3;}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 st.title("알트(ALT): SK하이닉스 분기 매출 나우캐스팅")
 st.caption(backend.DISCLAIMER)
 
@@ -143,8 +165,10 @@ def render_forecast(upload: dict) -> dict | None:
         - run_forecast의 ValueError, FileNotFoundError는 st.error로 안내하고 None을 돌려준다.
         -오류가 나면 보관한 결과도 비워, 다른 위젯을 움직였을 때 예전 숫자가 다시 보이지 않게 한다.
         - 보관한 결과는 data 폴더의 파일이 바뀐 것을 모르므로, 사이드바 '최신 자료로 다시 예측' 버튼으로 새로 실행한다.  
-        - 예측이 되면 시장 컨센서스 비교(2개)와 주가 영향 판단(4개) 카드를 지표 아래에 보여 준다.
-          숫자와 문장은 모두 result["consensus_facts"]의 표시용 문자열이다(data/consensus.csv가 없으면 '—').
+        - 예측이 되면 UI 초안(feat/week11-ui-draft) 구성대로 '핵심 결론' 배너와 세 묶음의 카드를 보여 준다:
+          매출 전망 지표(우리 추정 | 시장 컨센서스), 수출 신호 지표 4개, 주가 영향 판단 4개.
+          숫자와 문장은 모두 result["facts"], result["consensus_facts"]의 표시용 문자열이다
+          (data/consensus.csv가 없으면 '—'). 카드 모양은 맨 위 공통 CSS가 정한다.
     """
     st.subheader("매출 예측")
     if "forecast_cache_key" not in st.session_state:  # 초기화 관용구: 세션에서 처음 한 번만 만든다
@@ -184,8 +208,9 @@ def render_forecast(upload: dict) -> dict | None:
             )
         return result
 
-    _show_forecast_metrics(result["facts"])
-    _show_consensus_metrics(result["consensus_facts"])
+    _show_conclusion(result)
+    _show_revenue_cards(result["facts"], result["consensus_facts"])
+    _show_export_signal_cards(result)
     _show_price_impact(result["consensus_facts"])
     return result
 
@@ -205,48 +230,110 @@ def _select_forecast_quarter() -> str:
     )
 
 
-def _show_forecast_metrics(facts: dict) -> None:
-    """facts의 표시용 문자열로 핵심 지표 4개와 판정 한 줄을 보여 준다."""
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric(
-        f"{facts['quarter']} 예상 매출",
+def _not_available(text: str) -> bool:
+    """facts의 값이 없다는 표시("확인 불가", "—", 빈 문자열)인지 확인한다."""
+    return text in ("확인 불가", "—", "-", "")
+
+
+def _show_conclusion(result: dict) -> None:
+    """파란 '핵심 결론' 배너: 매출 전망, 컨센서스 대비 판정, 주가 영향 방향을 한 줄로 보여 준다."""
+    facts, cfacts = result["facts"], result["consensus_facts"]
+    parts = [f"매출 {facts['estimate']} 전망"]
+    if not _not_available(facts["qoq"]):
+        parts[0] += f" (직전 분기 대비 {facts['qoq']})"
+    if _not_available(cfacts["surprise_value"]):
+        parts.append("컨센서스 비교 불가")
+    else:
+        parts.append(f"컨센서스 대비 {cfacts['surprise_value']} {cfacts['surprise_note']}")
+    parts.append(f"주가 영향 {cfacts['direction_value']}")
+    st.markdown(
+        f'<div class="alt-concl"><small>핵심 결론 · {facts["quarter"]}</small><div>{" · ".join(parts)}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _show_placeholder_card(title: str, value: str, caption: str, pill: str = "준비 중") -> None:
+    """아직 backend 함수가 없는 지표의 점선 빈자리 카드."""
+    st.markdown(
+        f'<div class="alt-ph"><div class="t">{title}<span class="pill">{pill}</span></div>'
+        f'<div class="v">{value}</div><div class="c">{caption}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _show_revenue_cards(facts: dict, cfacts: dict) -> None:
+    """매출 전망 지표: 왼쪽은 우리 추정(예상 매출, 범위), 오른쪽은 시장 컨센서스(컨센서스, 괴리율)."""
+    st.markdown("##### 매출 전망 지표")
+    st.caption("왼쪽: 우리 추정 · 오른쪽: 시장 컨센서스 (FnGuide 연간 FY1 컨센서스에서 발표된 분기 실적을 빼 구함)")
+    ours, market = st.columns(2)
+    ours.metric(
+        f"{facts['quarter']} 예상 매출 (중앙값)",
         facts["estimate"],
+        delta=None if _not_available(facts["qoq"]) else f"{facts['qoq']} 전분기 대비",
         help="최근 4개 분기의 '매출 ÷ 원화 환산 수출' 비율 평균을 이번 분기 수출에 곱해 추정했습니다.",
     )
-    col2.metric("예상 범위", facts["range"], help="최근 4개 분기 비율의 최솟값과 최댓값을 적용한 범위입니다.")
-    col3.metric("직전 분기 대비", facts["qoq"], help="직전 분기 확정 매출과 비교한 예상 매출의 변화율입니다.")
-    col4.metric(
-        "반영된 수출 개월",
-        facts["months"],
-        help="이번 분기 3개월 중 수출 자료가 공표된 개월 수입니다. 3개월 미만이면 3개월로 환산했습니다.",
-    )
-    st.caption(f"수출 이상치 판정: {facts['anomaly']} · 지난 분기 가이던스와 비교: {facts['consistency']}")
-
-
-def _show_consensus_metrics(cfacts: dict) -> None:
-    """우리 추정과 나란히 볼 시장 컨센서스, 예상 괴리율 카드 2개를 보여 준다."""
-    st.markdown("**시장 컨센서스 비교**")
-    st.caption("FnGuide 연간(FY1) 매출 컨센서스에서 이미 발표된 분기 실적을 빼 대상 분기 몫을 구했습니다.")
-    col1, col2 = st.columns(2)
-    col1.metric(
+    ours.caption("수출 × 과거 4개 분기 매출/수출 비율")
+    market.metric(
         "시장 컨센서스 (대상 분기)",
         cfacts["consensus_value"],
         help="4분기는 '연간 컨센서스 − 1~3분기 실적'으로 정확히 구합니다. 1~3분기는 남은 분기에 나눈 근사값(≈)이며 "
         "균등 분할, 전년 분기 비중, 일정 성장 세 방법의 중앙값입니다.",
     )
-    col1.caption(cfacts["consensus_note"])
-    col2.metric(
+    market.caption(cfacts["consensus_note"])
+    ours.metric(
+        "예상 범위 (하한 ~ 상한)",
+        facts["range"],
+        help="최근 4개 분기 비율의 최솟값과 최댓값을 적용한 범위입니다.",
+    )
+    ours.caption("기준 분기 비율의 최솟값 ~ 최댓값 적용")
+    market.metric(
         "예상 괴리율",
         cfacts["surprise_value"],
         help="(예상 매출 ÷ 분기 컨센서스 − 1) × 100. 4분기는 ±5%를 넘거나 예상 범위 전체가 컨센서스 위·아래면 "
         "상회·하회, 1~3분기는 환산 범위를 벗어날 때만 상회·하회로 봅니다.",
     )
-    col2.caption(cfacts["surprise_note"])
+    market.caption(f"판정: {cfacts['surprise_note']}")  # delta로 넣으면 '하회'에도 ↑ 화살표가 붙어 캡션으로 둔다
+
+
+def _show_export_signal_cards(result: dict) -> None:
+    """수출 신호 지표 4개: 수출 증가율(빈자리), 이상치 판정, 반영 개월, 가이던스 일치 여부."""
+    facts, anomaly, consistency = result["facts"], result["anomaly"] or {}, result["consistency"] or {}
+    st.markdown("##### 수출 신호 지표")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        _show_placeholder_card("수출 증가율 · 직전 분기 대비", "—", "backend 함수 추가 후 표시")
+    z_score = anomaly.get("z_score")
+    col2.metric(
+        "수출 이상치 판정",
+        facts["anomaly"],
+        delta=None if _not_available(facts["export_yoy"]) else f"{facts['export_yoy']} 전년 동월 대비",
+        help="대상 월 수출의 전년 동월 대비 증가율이 직전 12개월의 평소 범위(z ±2)를 벗어났는지 판정합니다.",
+    )
+    col2.caption(
+        f"{result['anomaly_ym']} · z = {z_score:.2f} (기준 ±2.0)"
+        if isinstance(z_score, float)
+        else "판정에 필요한 25개월 자료가 부족합니다"
+    )
+    months = result["forecast"]["months_available"]
+    col3.metric(
+        "반영된 수출 개월",
+        f"{months} / 3",
+        help="이번 분기 3개월 중 수출 자료가 공표된 개월 수입니다. 3개월 미만이면 3개월로 환산했습니다.",
+    )
+    col3.caption("3개월로 환산해 추정" if months < 3 else "3개월 수출이 모두 반영됨")
+    col4.metric(
+        "가이던스 일치 여부",
+        facts["consistency"],
+        help="추정 매출의 전분기 대비 방향과 직전 분기 컨콜 가이던스(D램 기준) 방향이 같은지 비교합니다.",
+    )
+    col4.caption(
+        f"예측 {consistency.get('forecast_direction') or '-'} · 가이던스 {consistency.get('guidance_direction') or '-'}"
+    )
 
 
 def _show_price_impact(cfacts: dict) -> None:
-    """컨센서스 분포 안 위치, 1개월 리비전, 주가 영향 방향, 판단 신뢰도 카드 4개를 보여 준다."""
-    st.markdown("**주가 영향 판단**")
+    """주가 영향 판단 4개: 컨센서스 분포 안 위치, 1개월 리비전, 주가 영향 방향, 판단 신뢰도."""
+    st.markdown("##### 주가 영향 판단")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(
         "컨센서스 분포 안 위치",
