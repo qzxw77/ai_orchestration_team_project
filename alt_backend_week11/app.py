@@ -235,19 +235,91 @@ def _show_forecast_error(quarter: str, exc: Exception) -> None:
 # C. 수출 현황 (담당: 신해성)
 # =============================================================================
 def render_exports(upload: dict) -> None:
-    """업로드 결과 지표와 이천시, 청주시 월별 수출 차트를 보여 준다.
+    """업로드 반영 지표와 월별 수출 추이를 표시한다.
 
     계약:
-        upload: load_upload()의 반환값. 차트 자료는 upload["imported"]["exports"] (저장된 자료와 합친 전체 표)
+        upload: load_upload()의 반환값.
+        차트 자료는 imported["exports"]의 전체 병합 표를 사용한다.
+        반환값은 None이다.
 
-    담당자가 할 일 (지금 본문은 임시 최소 구현):
-        - st.metric 2개 이상: upload["imported"]의 raw_rows(올린 행), clean_rows(정제 후 남은 행), added(새로 늘어난 행)
-        - 사이드바 slider(차트 기간, 개월): backend.exports_chart_table(exports, last_months=값)에 넘긴다
-        - 사이드바 multiselect(지역): st.line_chart(표, y=고른 지역)으로 그릴 지역을 고른다
-        - 차트 자료가 없거나 지역을 하나도 고르지 않았을 때 안내
+    데이터 가공과 단위 변환은 backend에 위임한다.
+    기간은 달력상 기간이 아니라 자료가 있는 최근 관측월 수를 뜻한다.
     """
-    st.line_chart(backend.exports_chart_table(upload["imported"]["exports"]))
+    imported = upload["imported"]
 
+    st.subheader("이천시 · 청주시 수출 현황")
+    st.caption("메모리 반도체 HS 854232 | 업로드 반영 결과와 월별 추이")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "올린 행",
+        f"{imported['raw_rows']:,}행",
+        help="업로드한 CSV의 전체 행 수입니다.",
+    )
+    col2.metric(
+        "정제 후 반영된 행",
+        f"{imported['clean_rows']:,}행",
+        help="백엔드에서 대상 지역과 품목으로 정제한 행 수입니다.",
+    )
+    col3.metric(
+        "새로 늘어난 행",
+        f"{imported['added']:,}행",
+        help="저장된 전체 표에서 늘어난 행 수입니다. 기존 행의 값 갱신은 포함하지 않습니다.",
+    )
+
+    st.caption("위 지표는 업로드 반영 결과이며, 아래 필터는 차트에만 적용됩니다.")
+
+    # 다른 구역의 상태는 변경하지 않는다.
+    if "exports_months" not in st.session_state:
+        st.session_state["exports_months"] = backend.CHART_MONTHS
+
+    months = st.sidebar.slider(
+        "차트 기간 (최근 관측월 수)",
+        min_value=6,
+        max_value=36,
+        key="exports_months",
+        help="자료가 있는 마지막 N개 월을 표시합니다. 누락된 달은 채우지 않습니다.",
+    )
+
+    table = backend.exports_chart_table(
+        imported["exports"],
+        last_months=months,
+    )
+
+    if len(table) == 0:
+        st.info("차트로 표시할 이천시·청주시 수출 자료가 없습니다.")
+        return
+
+    options = list(table.columns)
+
+    if "exports_regions" not in st.session_state:
+        st.session_state["exports_regions"] = options
+    else:
+        # 데이터가 아니라 위젯의 선택 상태만 정리한다.
+        st.session_state["exports_regions"] = [
+            region
+            for region in st.session_state["exports_regions"]
+            if region in options
+        ]
+
+    regions = st.sidebar.multiselect(
+        "차트에 표시할 지역",
+        options=options,
+        key="exports_regions",
+    )
+
+    if not regions:
+        st.info("사이드바에서 지역을 하나 이상 선택해 주세요.")
+        return
+
+    st.caption(f"표시 구간: {table.index[0]} ~ {table.index[-1]}")
+    st.caption(
+        f"최근 관측월 {months}개 요청 / 실제 {len(table)}개 월 표시 / "
+        "단위: 억 달러 / 출처: 관세청 시군구별 수출"
+    )
+
+    st.line_chart(table, y=regions, height=380)
 
 # =============================================================================
 # D. 브리프와 상세 표 (담당: 이다현)
