@@ -4,7 +4,7 @@
 
 - 작성일: 2026-11-17
 - 대상 코드: `alt_backend_week11/` (app.py, backend.py, hynix_nowcast/)
-- 이 문서는 설계만 담고 있으며, 코드는 아직 작성하지 않았습니다.
+- 구현: 같은 브랜치(feat/consensus)에 반영됨. 구현하면서 바뀐 점은 11장에 정리
 - 표기: **[팀 확인]** = 구현 전에 팀이 정할 것
 
 ## 목차
@@ -53,7 +53,7 @@
 | 열 | A열 날짜, B~E열 FY1 매출액 평균, 최고, 최저, 중앙값, F~I열 FY2 같은 순서 |
 | 단위 | 억 원 |
 | FY1 | 그 날짜 기준으로 연간 실적이 아직 발표되지 않은 가장 가까운 회계연도 |
-| FY1이 다음 해로 넘어가는 날 | 4분기 실적 발표일 당일 (2024-01-25, 2025-01-24, 2026-01-28 확인. actuals.csv의 announced_date와 같음) |
+| FY1이 다음 해로 넘어가는 날 | 4분기 실적 발표일 당일 (2024-01-25, 2025-01-23, 2026-01-28 확인. actuals.csv의 announced_date와 같음) |
 
 FnGuide에서 분기 컨센서스(FQ)를 받을 수 없다는 가정으로 설계합니다. 분기 컨센서스를 받게 되면 3장의 환산 부분만 바꾸면 됩니다(10.3).
 
@@ -203,6 +203,7 @@ app.py
 | consensus_as_of | str 또는 None | 사용한 컨센서스 기준일 |
 | fiscal_year | int | 대상 연도 |
 | annual_mean_krw | float 또는 None | FY1 평균 |
+| annual_high_krw, annual_low_krw | float 또는 None | FY1 최고, 최저 (구현에서 추가) |
 | ytd_actual_krw | float 또는 None | 대상 연도에 발표된 분기 실적 합 |
 | remaining_quarters | int (1~4) | k |
 | method | "exact" / "allocated" / None | k = 1이면 exact |
@@ -213,6 +214,7 @@ app.py
 | revision_pct | float 또는 None | FY1 평균의 1개월 변화율(%). 기준일보다 30일 이상 앞선 날짜 중 가장 늦은 행과 비교, 없으면 None |
 | days_since_consensus | int 또는 None | as_of − consensus_as_of (일) |
 | days_after_announcement | int 또는 None | consensus_as_of − 직전 분기 실적 발표일 (일) |
+| revision_base_krw, revision_base_as_of | float, str 또는 None | 리비전 비교에 쓴 30일 전 FY1 평균과 그 날짜 (구현에서 추가, 화면 문구용) |
 
 status가 "ok"가 아니면 금액, 비율 키는 모두 None입니다.
 
@@ -482,3 +484,17 @@ FnGuide에서 분기 집계주기(FQ) 데이터를 받으면 consensus.csv에 `f
 3. consensus.csv 변환을 수기로 할지, 변환 스크립트를 만들지
 4. 예측 이력에 컨센서스와 판단 결과를 함께 저장할지
 5. 화면의 '수출 증가율(직전 분기 대비)' 카드는 별도 작업으로 진행할지
+
+---
+
+## 11. 구현하면서 바뀐 점 (2026-11-17)
+
+| 항목 | 설계 | 구현 |
+|---|---|---|
+| FY1 전환일 | 2025년 전환일을 2025-01-24로 적음 | 엑셀을 다시 확인해 **2025-01-23**으로 바로잡음(actuals.csv의 2024Q4 발표일과 같음) |
+| consensus.csv 작성 | 수기 변환 | 첫 파일은 2.3 절차를 그대로 따르는 일회성 변환으로 만듦(2024-01-25~2026-11-11, 679행). 이후 갱신은 수기 |
+| consensus dict | 5.2 표 | `annual_high_krw`, `annual_low_krw`, `revision_base_krw`, `revision_base_as_of` 추가 |
+| 형식 오류 | – | `load_consensus`의 ValueError: "필수 열 누락: …", "consensus.csv 형식 오류: …"(최대 5건 표시), "consensus.csv 날짜 중복: …", "consensus.csv 인코딩 오류: …" |
+| 표시 문자열 | `consensus_facts` | `backend.consensus_facts()`가 만드는 키 13개: consensus_value/note, surprise_value/note, dist_value/note, revision_value/note, direction_value/note, confidence_value/note/help. 값이 없으면 "—" |
+| 화면 | 8장 | B 구역 `_show_consensus_metrics`, `_show_price_impact`. 지표 4개 아래에 '시장 컨센서스 비교' 2개, '주가 영향 판단' 4개 카드 |
+| 테스트 | C01~C19 | `alt_backend_week11/tests/test_consensus.py` 27건 (C01~C19 + 형식 오류, 하회(강), 1분기 환산, 환산 감점, 팀 consensus.csv 검사, backend 연결 2건) |

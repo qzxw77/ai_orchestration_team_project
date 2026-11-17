@@ -3,11 +3,16 @@
     estimate_revenue  분기 수출 x 과거 매출/수출 비율 -> 대상 분기 매출 범위
     detect_anomaly    최근 월 수출의 전년동월비 z-score -> 급증, 급감 판정
     compare_guidance  추정 방향과 컨콜 가이던스 방향 비교
+    implied_quarter_consensus  연간(FY1) 컨센서스 - 발표된 실적 -> 대상 분기 컨센서스 (4분기 정확, 1~3분기 환산)
+    compare_consensus          추정 매출과 분기 컨센서스의 괴리율, 상회/부합/하회 판정
+    judge_price_impact         위치 판정과 리비전 -> 주가 영향 방향, 근거 충분도 -> 판단 신뢰도
 
 입력 표와 dict는 바꾸지 않고, 결과 dict는 호출마다 새로 만들며 값은 파이썬 기본 타입만 쓴다.
 """
 
 import math
+import statistics
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -37,6 +42,45 @@ DIRECTION_DOWN = "하락"
 CONSISTENCY_MATCH = "일치"
 CONSISTENCY_MISMATCH = "불일치"
 CONSISTENCY_UNKNOWN = "판단불가"
+
+# 컨센서스 비교와 주가 영향 판단 (설계서: 신동훈/consensus_price_impact_design.md)
+KRW_PER_TRILLION = 1e12
+QUARTERS_PER_YEAR = 4
+CONSENSUS_STATUS_OK = "ok"
+CONSENSUS_STATUS_NO_CONSENSUS = "no_consensus"
+CONSENSUS_STATUS_NOT_READY = "not_ready"
+CONSENSUS_STATUS_INVALID = "invalid"
+METHOD_EXACT = "exact"
+METHOD_ALLOCATED = "allocated"
+ALLOCATION_METHODS = ("even", "prior_share", "const_growth")
+COMPARISON_STATUS_OK = "ok"
+COMPARISON_STATUS_UNAVAILABLE = "unavailable"
+POSITION_ABOVE = "상회"
+POSITION_INLINE = "부합"
+POSITION_BELOW = "하회"
+STRENGTH_STRONG = "강"
+STRENGTH_WEAK = "약"
+IMPACT_POSITIVE = "긍정"
+IMPACT_NEUTRAL = "중립"
+IMPACT_NEGATIVE = "부정"
+IMPACT_UNKNOWN = "판단불가"
+
+SURPRISE_BAND_PCT = 5.0
+REVISION_BAND_PCT = 3.0
+REVISION_LOOKBACK_DAYS = 30
+FRESH_DAYS = 7
+STALE_DAYS = 30
+POST_ANNOUNCEMENT_DAYS = 5
+SPREAD_FULL_PCT = 20.0
+SPREAD_ZERO_PCT = 60.0
+CONFIDENCE_MONTHS_MAX = 40.0
+CONFIDENCE_STRENGTH_MAX = 30.0
+CONFIDENCE_AGREEMENT_MAX = 15.0
+CONFIDENCE_FRESH_MAX = 15.0
+CONFIDENCE_FRESH_PARTIAL = 8.0
+ALLOCATION_PENALTY = {1: 0.0, 2: 15.0, 3: 25.0, 4: 30.0}
+MAX_REASONS = 3
+GROWTH_SEARCH_STEPS = 200
 
 
 # =============================================================================
@@ -348,3 +392,441 @@ def _is_valid_number(value: object) -> bool:
         유효한 숫자면 True.
     """
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+# =============================================================================
+# implied_quarter_consensus
+# =============================================================================
+def implied_quarter_consensus(
+    consensus_df: pd.DataFrame, actuals_df: pd.DataFrame, target_quarter: str, as_of: str
+) -> dict:
+    """예측 실행일까지 공개된 FY1 연간 컨센서스에서 발표된 실적을 빼고 대상 분기 몫을 구한다.
+
+    남은 컨센서스 R = FY1 평균 - 대상 연도에 발표된 분기 실적 합, 남은 분기 수 k = 5 - 분기 번호.
+    k = 1(4분기)이면 R이 곧 분기 컨센서스다(exact). k >= 2이면 균등 분할, 전년 분기 비중, 일정 성장 세 방법으로
+    나눈 값의 중앙값을 중심값, 최솟값~최댓값을 범위로 쓴다(allocated).
+    컨센서스 기준일과 실적 발표일이 as_of보다 늦은 자료는 읽지 않는다(미래 정보 금지).
+
+    Args:
+        consensus_df: load_consensus 결과.
+        actuals_df: load_actuals 결과 (quarter, revenue_krw, announced_date 사용).
+        target_quarter: 대상 분기 "YYYYQn".
+        as_of: 예측 실행일 "YYYY-MM-DD".
+
+    Returns:
+        consensus dict
+            status ("ok", "no_consensus", "not_ready", "invalid"), quarter, consensus_as_of, fiscal_year,
+            annual_mean_krw, annual_high_krw, annual_low_krw, ytd_actual_krw, remaining_quarters, method,
+            methods ({"even", "prior_share", "const_growth": float | None}), center_krw, band_low_krw, band_high_krw,
+            dist_low_krw, dist_high_krw, revision_pct, revision_base_krw, revision_base_as_of,
+            days_since_consensus, days_after_announcement.
+        "not_ready": 직전 분기 실적이 as_of까지 발표되지 않았거나 대상 연도의 앞선 분기 실적이 빠짐.
+        "invalid": 분기나 as_of 형식 오류, 또는 R <= 0. status가 "ok"가 아니면 금액, 비율 키는 None이다.
+    """
+    quarter_index = _quarter_index(target_quarter)
+    as_of_date = _to_date(as_of)
+    result = _empty_consensus(target_quarter)
+    if quarter_index is None or as_of_date is None:
+        result["status"] = CONSENSUS_STATUS_INVALID
+        return result
+    year, number = divmod(quarter_index, QUARTERS_PER_YEAR)
+    number += 1
+    result["fiscal_year"] = year
+    result["remaining_quarters"] = QUARTERS_PER_YEAR + 1 - number
+
+    actuals = _announced_actuals(actuals_df, as_of)
+    previous = _previous_quarter(target_quarter)
+    ytd_quarters = [f"{year:04d}Q{q}" for q in range(1, number)]
+    if previous not in actuals or any(quarter not in actuals for quarter in ytd_quarters):
+        result["status"] = CONSENSUS_STATUS_NOT_READY
+        return result
+
+    candidates = consensus_df.loc[
+        (consensus_df["fiscal_year"] == year) & (consensus_df["as_of"] <= as_of)
+    ].sort_values("as_of")
+    if len(candidates) == 0:
+        result["status"] = CONSENSUS_STATUS_NO_CONSENSUS
+        return result
+    row = candidates.iloc[-1]
+
+    ytd = float(sum(actuals[quarter][0] for quarter in ytd_quarters))
+    remaining = float(row["mean_krw"]) - ytd
+    if remaining <= 0:
+        result["status"] = CONSENSUS_STATUS_INVALID
+        return result
+
+    k = result["remaining_quarters"]
+    if k == 1:
+        methods = {name: remaining for name in ALLOCATION_METHODS}
+        center = band_low = band_high = remaining
+        dist_low, dist_high = float(row["low_krw"]) - ytd, float(row["high_krw"]) - ytd
+        method = METHOD_EXACT
+    else:
+        methods = {
+            "even": remaining / k,
+            "prior_share": _prior_share(actuals, year, number, remaining),
+            "const_growth": _const_growth(actuals[previous][0], remaining, k),
+        }
+        values = [value for value in methods.values() if value is not None]
+        center = float(statistics.median(values))
+        band_low, band_high = min(values), max(values)
+        dist_low, dist_high = band_low, band_high
+        method = METHOD_ALLOCATED
+
+    consensus_date = _to_date(row["as_of"])
+    revision_rows = candidates.loc[
+        candidates["as_of"] <= (consensus_date - timedelta(days=REVISION_LOOKBACK_DAYS)).isoformat()
+    ]
+    revision_pct = revision_base = revision_base_as_of = None
+    if len(revision_rows) > 0:
+        base_row = revision_rows.iloc[-1]
+        revision_base = float(base_row["mean_krw"])
+        revision_base_as_of = str(base_row["as_of"])
+        revision_pct = (float(row["mean_krw"]) / revision_base - 1.0) * 100.0
+
+    result.update(
+        status=CONSENSUS_STATUS_OK,
+        consensus_as_of=str(row["as_of"]),
+        annual_mean_krw=float(row["mean_krw"]),
+        annual_high_krw=float(row["high_krw"]),
+        annual_low_krw=float(row["low_krw"]),
+        ytd_actual_krw=ytd,
+        method=method,
+        methods={name: (float(value) if value is not None else None) for name, value in methods.items()},
+        center_krw=float(center),
+        band_low_krw=float(band_low),
+        band_high_krw=float(band_high),
+        dist_low_krw=float(dist_low),
+        dist_high_krw=float(dist_high),
+        revision_pct=revision_pct,
+        revision_base_krw=revision_base,
+        revision_base_as_of=revision_base_as_of,
+        days_since_consensus=(as_of_date - consensus_date).days,
+        days_after_announcement=(consensus_date - _to_date(actuals[previous][1])).days,
+    )
+    return result
+
+
+def _empty_consensus(target_quarter: str) -> dict:
+    """금액, 비율 키가 모두 None인 consensus dict를 새로 만든다.
+
+    Returns:
+        status "no_consensus"인 consensus dict.
+    """
+    return {
+        "status": CONSENSUS_STATUS_NO_CONSENSUS,
+        "quarter": target_quarter,
+        "consensus_as_of": None,
+        "fiscal_year": None,
+        "annual_mean_krw": None,
+        "annual_high_krw": None,
+        "annual_low_krw": None,
+        "ytd_actual_krw": None,
+        "remaining_quarters": None,
+        "method": None,
+        "methods": {name: None for name in ALLOCATION_METHODS},
+        "center_krw": None,
+        "band_low_krw": None,
+        "band_high_krw": None,
+        "dist_low_krw": None,
+        "dist_high_krw": None,
+        "revision_pct": None,
+        "revision_base_krw": None,
+        "revision_base_as_of": None,
+        "days_since_consensus": None,
+        "days_after_announcement": None,
+    }
+
+
+def _to_date(value: object) -> date | None:
+    """"YYYY-MM-DD" 문자열을 date로 바꾼다.
+
+    Returns:
+        date. 형식이 다르거나 달력에 없는 날짜면 None.
+    """
+    if not isinstance(value, str) or len(value) != 10 or not value.isascii():
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _announced_actuals(actuals_df: pd.DataFrame, as_of: str) -> dict[str, tuple[float, str]]:
+    """as_of까지 발표된 분기 실적만 모은다.
+
+    Returns:
+        {"YYYYQn": (revenue_krw, announced_date)}. 매출이 없거나 0 이하인 행은 뺀다.
+    """
+    announced: dict[str, tuple[float, str]] = {}
+    for quarter, revenue, announced_date in actuals_df[["quarter", "revenue_krw", "announced_date"]].itertuples(
+        index=False, name=None
+    ):
+        if not isinstance(announced_date, str) or announced_date > as_of or pd.isna(revenue) or revenue <= 0:
+            continue
+        announced[str(quarter)] = (float(revenue), announced_date)
+    return announced
+
+
+def _prior_share(actuals: dict[str, tuple[float, str]], year: int, number: int, remaining: float) -> float | None:
+    """전년 분기 비중으로 남은 컨센서스 중 대상 분기 몫을 구한다.
+
+    Returns:
+        remaining x 전년 대상 분기 실적 / 전년 대상~4분기 실적 합. 전년 실적이 하나라도 없으면 None.
+    """
+    prior = [actuals.get(f"{year - 1:04d}Q{q}") for q in range(1, QUARTERS_PER_YEAR + 1)]
+    if any(item is None for item in prior):
+        return None
+    rest = sum(item[0] for item in prior[number - 1 :])
+    return remaining * prior[number - 1][0] / rest if rest > 0 else None
+
+
+def _const_growth(base: float, remaining: float, k: int) -> float | None:
+    """직전 분기 실적 base에서 매 분기 같은 배수 x로 늘어 k개 분기 합이 remaining이 되는 x를 구한다.
+
+    base x (x + x^2 + ... + x^k) = remaining 을 이분법으로 푼다 (좌변이 x > 0에서 단조 증가해 해가 하나).
+
+    Returns:
+        대상 분기 몫 base x x. base가 0 이하이면 None.
+    """
+    if base <= 0:
+        return None
+
+    def total(x: float) -> float:
+        return base * sum(x**power for power in range(1, k + 1))
+
+    low, high = 0.0, 1.0
+    while total(high) < remaining:
+        high *= 2.0
+    for _ in range(GROWTH_SEARCH_STEPS):
+        middle = (low + high) / 2.0
+        if total(middle) < remaining:
+            low = middle
+        else:
+            high = middle
+    return base * (low + high) / 2.0
+
+
+# =============================================================================
+# compare_consensus
+# =============================================================================
+def compare_consensus(forecast: dict, consensus: dict) -> dict:
+    """우리 추정 매출과 분기 컨센서스의 괴리율, 위치(상회, 부합, 하회), 분포 안 위치를 판정한다.
+
+    exact(4분기): 하한 > 컨센서스면 상회(강), 상한 < 컨센서스면 하회(강), 괴리율 >= +5%면 상회(약),
+    <= -5%면 하회(약), 그 외 부합. allocated(1~3분기): 같은 순서로 환산 범위(band)와 비교한다.
+
+    Args:
+        forecast: estimate_revenue 결과.
+        consensus: implied_quarter_consensus 결과.
+
+    Returns:
+        comparison dict
+            status ("ok", "unavailable"), surprise_pct (float | None), position ("상회", "부합", "하회", None),
+            strength ("강", "약", None), dist_position_pct (float | None, 0~100).
+    """
+    result = {
+        "status": COMPARISON_STATUS_UNAVAILABLE,
+        "surprise_pct": None,
+        "position": None,
+        "strength": None,
+        "dist_position_pct": None,
+    }
+    if not _is_ok(forecast, FORECAST_STATUS_OK) or not _is_ok(consensus, CONSENSUS_STATUS_OK):
+        return result
+    estimate, lower, upper = (forecast.get(key) for key in ("estimate_krw", "lower_krw", "upper_krw"))
+    center = consensus.get("center_krw")
+    if not all(_is_valid_number(value) for value in (estimate, lower, upper, center)) or center <= 0:
+        return result
+
+    surprise = (estimate / center - 1.0) * 100.0
+    if consensus.get("method") == METHOD_EXACT:
+        reference_low = reference_high = center
+        above_weak, below_weak = surprise >= SURPRISE_BAND_PCT, surprise <= -SURPRISE_BAND_PCT
+    else:
+        reference_low, reference_high = consensus["band_low_krw"], consensus["band_high_krw"]
+        above_weak, below_weak = estimate > reference_high, estimate < reference_low
+
+    if lower > reference_high:
+        position, strength = POSITION_ABOVE, STRENGTH_STRONG
+    elif upper < reference_low:
+        position, strength = POSITION_BELOW, STRENGTH_STRONG
+    elif above_weak:
+        position, strength = POSITION_ABOVE, STRENGTH_WEAK
+    elif below_weak:
+        position, strength = POSITION_BELOW, STRENGTH_WEAK
+    else:
+        position, strength = POSITION_INLINE, None
+
+    dist_low, dist_high = consensus.get("dist_low_krw"), consensus.get("dist_high_krw")
+    dist_position = None
+    if _is_valid_number(dist_low) and _is_valid_number(dist_high) and dist_high > dist_low:
+        dist_position = min(max((estimate - dist_low) / (dist_high - dist_low) * 100.0, 0.0), 100.0)
+
+    result.update(
+        status=COMPARISON_STATUS_OK,
+        surprise_pct=float(surprise),
+        position=position,
+        strength=strength,
+        dist_position_pct=dist_position,
+    )
+    return result
+
+
+def _is_ok(value: object, ok_status: str) -> bool:
+    """dict이고 status가 ok_status인지 확인한다.
+
+    Returns:
+        조건을 만족하면 True.
+    """
+    return isinstance(value, dict) and value.get("status") == ok_status
+
+
+# =============================================================================
+# judge_price_impact
+# =============================================================================
+def judge_price_impact(forecast: dict, consensus: dict, comparison: dict) -> dict:
+    """위치 판정과 컨센서스 리비전으로 주가 영향 방향을, 근거 충분도로 판단 신뢰도를 정한다.
+
+    방향: 상회 -> 긍정, 하회 -> 부정, 부합이면 리비전 >= +3% 긍정, <= -3% 부정, 그 외 중립.
+    신뢰도(0~100): 수출 반영 개월(40) + 신호 강도(30) + 컨센서스 합의도(15) + 최신성(15) - 환산 감점.
+    신뢰도는 근거 데이터가 얼마나 충분한지 나타내는 점수이며 주가가 오를 확률이 아니다.
+
+    Args:
+        forecast: estimate_revenue 결과.
+        consensus: implied_quarter_consensus 결과.
+        comparison: compare_consensus 결과.
+
+    Returns:
+        price_impact dict
+            direction ("긍정", "중립", "부정", "판단불가"), confidence (int 0~100 | None),
+            confidence_parts ({"months", "strength", "agreement", "freshness", "allocation_penalty"} | None),
+            reasons (list[str], 최대 3개).
+    """
+    if not _is_ok(comparison, COMPARISON_STATUS_OK):
+        return {
+            "direction": IMPACT_UNKNOWN,
+            "confidence": None,
+            "confidence_parts": None,
+            "reasons": [_unknown_reason(forecast, consensus)],
+        }
+
+    position = comparison["position"]
+    revision = consensus.get("revision_pct")
+    if position == POSITION_ABOVE:
+        direction = IMPACT_POSITIVE
+    elif position == POSITION_BELOW:
+        direction = IMPACT_NEGATIVE
+    elif _is_valid_number(revision) and revision >= REVISION_BAND_PCT:
+        direction = IMPACT_POSITIVE
+    elif _is_valid_number(revision) and revision <= -REVISION_BAND_PCT:
+        direction = IMPACT_NEGATIVE
+    else:
+        direction = IMPACT_NEUTRAL
+
+    parts = _confidence_parts(forecast, consensus, comparison)
+    raw = parts["months"] + parts["strength"] + parts["agreement"] + parts["freshness"] - parts["allocation_penalty"]
+    confidence = int(round(min(max(raw, 0.0), 100.0)))
+    return {
+        "direction": direction,
+        "confidence": confidence,
+        "confidence_parts": {key: round(value, 1) for key, value in parts.items()},
+        "reasons": _impact_reasons(forecast, consensus, comparison),
+    }
+
+
+def _confidence_parts(forecast: dict, consensus: dict, comparison: dict) -> dict[str, float]:
+    """판단 신뢰도의 구성 요소 다섯 개를 계산한다.
+
+    Returns:
+        {"months", "strength", "agreement", "freshness", "allocation_penalty": float}.
+    """
+    months = forecast.get("months_available")
+    months_score = CONFIDENCE_MONTHS_MAX * min(max(months, 0), MONTHS_PER_QUARTER) / MONTHS_PER_QUARTER if (
+        isinstance(months, int) and not isinstance(months, bool)
+    ) else 0.0
+
+    estimate, lower, upper = forecast["estimate_krw"], forecast["lower_krw"], forecast["upper_krw"]
+    center = consensus["center_krw"]
+    half_width_pct = (upper - lower) / 2.0 / estimate * 100.0 if estimate > 0 else 0.0
+    if center < lower or center > upper or half_width_pct <= 0:
+        strength = CONFIDENCE_STRENGTH_MAX
+    else:
+        strength = CONFIDENCE_STRENGTH_MAX * min(abs(comparison["surprise_pct"]) / half_width_pct, 1.0)
+
+    spread = (consensus["dist_high_krw"] - consensus["dist_low_krw"]) / center * 100.0
+    if spread <= SPREAD_FULL_PCT:
+        agreement = CONFIDENCE_AGREEMENT_MAX
+    elif spread >= SPREAD_ZERO_PCT:
+        agreement = 0.0
+    else:
+        agreement = CONFIDENCE_AGREEMENT_MAX * (SPREAD_ZERO_PCT - spread) / (SPREAD_ZERO_PCT - SPREAD_FULL_PCT)
+
+    after, since = consensus.get("days_after_announcement"), consensus.get("days_since_consensus")
+    if not isinstance(after, int) or not isinstance(since, int) or after < POST_ANNOUNCEMENT_DAYS:
+        freshness = 0.0
+    elif since <= FRESH_DAYS:
+        freshness = CONFIDENCE_FRESH_MAX
+    elif since <= STALE_DAYS:
+        freshness = CONFIDENCE_FRESH_PARTIAL
+    else:
+        freshness = 0.0
+
+    penalty = ALLOCATION_PENALTY.get(consensus.get("remaining_quarters"), max(ALLOCATION_PENALTY.values()))
+    return {
+        "months": float(months_score),
+        "strength": float(strength),
+        "agreement": float(agreement),
+        "freshness": float(freshness),
+        "allocation_penalty": float(penalty),
+    }
+
+
+def _trillion(value: float) -> str:
+    """원 단위 금액을 "126.5조" 형식으로 바꾼다.
+
+    Returns:
+        조 단위 소수 첫째 자리 문자열.
+    """
+    return f"{value / KRW_PER_TRILLION:.1f}조"
+
+
+def _impact_reasons(forecast: dict, consensus: dict, comparison: dict) -> list[str]:
+    """판단 근거 문장(괴리율, 리비전, 환산 근사)을 만든다.
+
+    Returns:
+        최대 MAX_REASONS개의 문장 list.
+    """
+    surprise = comparison["surprise_pct"]
+    position = comparison["position"]
+    label = position if comparison["strength"] is None else f"{position}({comparison['strength']})"
+    gap = f"{abs(surprise):.1f}% {'높아' if surprise >= 0 else '낮아'}"
+    reasons = [
+        f"추정치 {_trillion(forecast['estimate_krw'])} 원이 분기 컨센서스 {_trillion(consensus['center_krw'])} 원보다 "
+        f"{gap} {label} 판정입니다."
+    ]
+    revision = consensus.get("revision_pct")
+    if _is_valid_number(revision):
+        trend = "상향" if revision > 0 else "하향" if revision < 0 else "변화 없음"
+        reasons.append(f"연간 컨센서스가 최근 {REVISION_LOOKBACK_DAYS}일 동안 {revision:+.1f}% {trend}되었습니다.")
+    if consensus.get("method") == METHOD_ALLOCATED:
+        reasons.append(
+            "분기 컨센서스는 연간 컨센서스를 남은 분기에 나눈 근사값이라 환산 범위로 판정했습니다."
+        )
+    return reasons[:MAX_REASONS]
+
+
+def _unknown_reason(forecast: dict, consensus: dict) -> str:
+    """판단불가 사유 한 문장을 만든다.
+
+    Returns:
+        사유 문장.
+    """
+    if not _is_ok(forecast, FORECAST_STATUS_OK):
+        return "매출 추정치가 없어 컨센서스와 비교할 수 없습니다."
+    status = consensus.get("status") if isinstance(consensus, dict) else None
+    if status == CONSENSUS_STATUS_NOT_READY:
+        return "직전 분기 실적이 아직 발표되지 않아 분기 컨센서스를 구할 수 없습니다."
+    if status == CONSENSUS_STATUS_INVALID:
+        return "연간 컨센서스가 이미 발표된 실적 합보다 작아 분기 컨센서스를 구할 수 없습니다."
+    return "대상 연도의 컨센서스 자료가 없습니다 (data/consensus.csv)."

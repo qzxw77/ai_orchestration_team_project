@@ -143,6 +143,8 @@ def render_forecast(upload: dict) -> dict | None:
         - run_forecast의 ValueError, FileNotFoundError는 st.error로 안내하고 None을 돌려준다.
         -오류가 나면 보관한 결과도 비워, 다른 위젯을 움직였을 때 예전 숫자가 다시 보이지 않게 한다.
         - 보관한 결과는 data 폴더의 파일이 바뀐 것을 모르므로, 사이드바 '최신 자료로 다시 예측' 버튼으로 새로 실행한다.  
+        - 예측이 되면 시장 컨센서스 비교(2개)와 주가 영향 판단(4개) 카드를 지표 아래에 보여 준다.
+          숫자와 문장은 모두 result["consensus_facts"]의 표시용 문자열이다(data/consensus.csv가 없으면 '—').
     """
     st.subheader("매출 예측")
     if "forecast_cache_key" not in st.session_state:  # 초기화 관용구: 세션에서 처음 한 번만 만든다
@@ -183,6 +185,8 @@ def render_forecast(upload: dict) -> dict | None:
         return result
 
     _show_forecast_metrics(result["facts"])
+    _show_consensus_metrics(result["consensus_facts"])
+    _show_price_impact(result["consensus_facts"])
     return result
 
 
@@ -219,6 +223,54 @@ def _show_forecast_metrics(facts: dict) -> None:
     st.caption(f"수출 이상치 판정: {facts['anomaly']} · 지난 분기 가이던스와 비교: {facts['consistency']}")
 
 
+def _show_consensus_metrics(cfacts: dict) -> None:
+    """우리 추정과 나란히 볼 시장 컨센서스, 예상 괴리율 카드 2개를 보여 준다."""
+    st.markdown("**시장 컨센서스 비교**")
+    st.caption("FnGuide 연간(FY1) 매출 컨센서스에서 이미 발표된 분기 실적을 빼 대상 분기 몫을 구했습니다.")
+    col1, col2 = st.columns(2)
+    col1.metric(
+        "시장 컨센서스 (대상 분기)",
+        cfacts["consensus_value"],
+        help="4분기는 '연간 컨센서스 − 1~3분기 실적'으로 정확히 구합니다. 1~3분기는 남은 분기에 나눈 근사값(≈)이며 "
+        "균등 분할, 전년 분기 비중, 일정 성장 세 방법의 중앙값입니다.",
+    )
+    col1.caption(cfacts["consensus_note"])
+    col2.metric(
+        "예상 괴리율",
+        cfacts["surprise_value"],
+        help="(예상 매출 ÷ 분기 컨센서스 − 1) × 100. 4분기는 ±5%를 넘거나 예상 범위 전체가 컨센서스 위·아래면 "
+        "상회·하회, 1~3분기는 환산 범위를 벗어날 때만 상회·하회로 봅니다.",
+    )
+    col2.caption(cfacts["surprise_note"])
+
+
+def _show_price_impact(cfacts: dict) -> None:
+    """컨센서스 분포 안 위치, 1개월 리비전, 주가 영향 방향, 판단 신뢰도 카드 4개를 보여 준다."""
+    st.markdown("**주가 영향 판단**")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(
+        "컨센서스 분포 안 위치",
+        cfacts["dist_value"],
+        help="우리 예상 매출이 애널리스트 최저(0%)~최고(100%) 전망 사이 어디쯤인지 보여 줍니다.",
+    )
+    col1.caption(cfacts["dist_note"])
+    col2.metric(
+        "컨센서스 추세 (1개월)",
+        cfacts["revision_value"],
+        help="연간 매출 컨센서스가 30일 전보다 얼마나 바뀌었는지입니다. 시장 기대가 오르는 중인지 보여 줍니다.",
+    )
+    col2.caption(cfacts["revision_note"])
+    col3.metric(
+        "주가 영향 방향",
+        cfacts["direction_value"],
+        help="상회면 긍정, 하회면 부정입니다. 부합이면 1개월 리비전이 +3% 이상일 때 긍정, −3% 이하일 때 부정, "
+        "그 사이면 중립입니다.",
+    )
+    col3.caption(cfacts["direction_note"])
+    col4.metric("판단 신뢰도", cfacts["confidence_value"], help=cfacts["confidence_help"])
+    col4.caption(cfacts["confidence_note"])
+
+
 def _show_forecast_error(quarter: str, exc: Exception) -> None:
     """run_forecast가 낸 오류의 원인과 확인할 곳을 보여 준다."""
     if isinstance(exc, FileNotFoundError):  # 원문에는 PC의 전체 경로와 영어 문장이 들어 있어 그대로 보여 주지 않는다
@@ -226,7 +278,10 @@ def _show_forecast_error(quarter: str, exc: Exception) -> None:
         st.markdown("- 확인할 곳: week11 폴더의 `data` 안에 `actuals.csv`가 있는지, 이름이 바뀌지 않았는지 확인해 주세요.")
     else:  # backend의 ValueError 문장은 '필수 열 누락: ...'처럼 한국어 한 줄이라 그대로 보여 준다
         st.error(f"**{quarter} 매출을 예측하지 못했습니다.**\n\n원인: {exc}", icon="🚫")
-        st.markdown("- 확인할 곳: `data/actuals.csv`의 형식이나 `data/transcripts/`의 컨콜 파일 인코딩을 확인해 주세요.")
+        st.markdown(
+            "- 확인할 곳: `data/actuals.csv`, `data/consensus.csv`의 형식이나 "
+            "`data/transcripts/`의 컨콜 파일 인코딩을 확인해 주세요."
+        )
     st.markdown("- 파일을 고친 뒤 사이드바의 '최신 자료로 다시 예측'을 눌러 주세요.")
 
 

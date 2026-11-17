@@ -7,6 +7,7 @@
     python backend.py --full-refresh     저장된 자료와 상관없이 처음부터 다시 수집
 
 필요한 것: .env의 CUSTOMS_API_KEY, ECOS_API_KEY (ANTHROPIC_API_KEY는 선택, 없으면 mock 응답), data/actuals.csv.
+선택: data/consensus.csv (FnGuide 연간 매출 컨센서스). 없으면 컨센서스 비교와 주가 영향 판단만 '판단불가'가 된다.
 아래 단계 함수는 화면에 출력하지 않고 결과만 돌려주므로 Streamlit app.py가 `import backend`로 그대로 불러 쓴다.
     refresh_data, check_api, run_forecast, read_exports, read_uploaded_csv, import_exports,
     exports_chart_table, list_target_quarters, default_target_quarter
@@ -35,6 +36,12 @@ CHART_MONTHS = 25
 USD_PER_100M = 1e8
 KRW_PER_TRILLION = 1e12
 DISCLAIMER = "이 결과는 공개 통계로 계산한 참고용 추정치이며 투자 권유가 아닙니다."
+NOT_AVAILABLE = "—"
+CONSENSUS_FACT_KEYS = (
+    "consensus_value", "consensus_note", "surprise_value", "surprise_note", "dist_value", "dist_note",
+    "revision_value", "revision_note", "direction_value", "direction_note",
+    "confidence_value", "confidence_note", "confidence_help",
+)
 
 EXPORTS_KEY_COLUMNS = list(preprocess.EXPORTS_KEY_COLUMNS)
 FORECASTS_COLUMNS = (
@@ -184,11 +191,13 @@ def run_forecast(
             target_quarter (str), as_of (str "YYYY-MM-DD"), status (str: forecast의 status)
             forecast, anomaly, guidance, consistency (dict, no_data면 anomaly 이하 None)
             brief (str), facts (dict[str, str]: 화면 표시용 숫자 문자열), anomaly_ym (str | None)
+            consensus, comparison, price_impact (dict: 컨센서스 환산, 비교, 주가 영향 판단. 항상 들어 있음)
+            consensus_facts (dict[str, str]: 컨센서스와 주가 영향 카드의 표시용 문자열)
             transcript_file (str | None: 읽은 컨콜 파일 이름)
             exports, quarterly, actuals, history (DataFrame: 대상 분기의 예측 이력)
 
     Raises:
-        ValueError: 분기 형식 오류, actuals.csv 형식 오류, 컨콜 파일 인코딩 오류.
+        ValueError: 분기 형식 오류, actuals.csv 또는 consensus.csv 형식 오류, 컨콜 파일 인코딩 오류.
         FileNotFoundError: data/actuals.csv가 없을 때.
     """
     _validate_quarter(target_quarter)
@@ -200,6 +209,11 @@ def run_forecast(
     fx = _read_table(paths["fx"], data_loader.FX_COLUMNS, float_columns=("usdkrw",))
     quarterly = preprocess.aggregate_quarterly(exports, fx)
     forecast = forecaster.estimate_revenue(quarterly, actuals, target_quarter)
+    consensus = forecaster.implied_quarter_consensus(
+        _read_consensus(paths["consensus"]), actuals, target_quarter, as_of
+    )
+    comparison = forecaster.compare_consensus(forecast, consensus)
+    price_impact = forecaster.judge_price_impact(forecast, consensus, comparison)
 
     result = {
         "target_quarter": target_quarter,
@@ -213,6 +227,10 @@ def run_forecast(
         "facts": llm_module.build_brief_facts(forecast, {}, {}),
         "anomaly_ym": None,
         "transcript_file": None,
+        "consensus": consensus,
+        "comparison": comparison,
+        "price_impact": price_impact,
+        "consensus_facts": consensus_facts(consensus, comparison, price_impact),
         "exports": exports,
         "quarterly": quarterly,
         "actuals": actuals,
@@ -240,6 +258,105 @@ def run_forecast(
         history=_quarter_history(_save_forecast(paths["forecasts"], forecast, as_of), target_quarter),
     )
     return result
+
+
+_CONSENSUS_UNAVAILABLE_NOTES = {
+    forecaster.CONSENSUS_STATUS_NO_CONSENSUS: "대상 연도 컨센서스 자료 없음 (data/consensus.csv)",
+    forecaster.CONSENSUS_STATUS_NOT_READY: "직전 분기 실적 발표 전이라 분기 컨센서스를 구할 수 없음",
+    forecaster.CONSENSUS_STATUS_INVALID: "연간 컨센서스가 발표된 실적 합보다 작아 구할 수 없음",
+}
+
+
+def consensus_facts(consensus: dict, comparison: dict, price_impact: dict) -> dict[str, str]:
+    """컨센서스 비교와 주가 영향 카드에 쓸 표시용 문자열을 만든다 (app.py는 이 값을 그리기만 한다).
+
+    Returns:
+        dict[str, str]
+            consensus_value, consensus_note (시장 컨센서스), surprise_value, surprise_note (예상 괴리율),
+            dist_value, dist_note (컨센서스 분포 안 위치), revision_value, revision_note (1개월 리비전),
+            direction_value, direction_note (주가 영향 방향), confidence_value, confidence_note, confidence_help.
+        값이 없으면 value는 "—"이고 note에 이유를 담는다.
+    """
+    facts = {key: NOT_AVAILABLE for key in CONSENSUS_FACT_KEYS}
+    ok = consensus.get("status") == forecaster.CONSENSUS_STATUS_OK
+    exact = consensus.get("method") == forecaster.METHOD_EXACT
+    if ok:
+        center = consensus["center_krw"]
+        band = f"{_trillion_number(consensus['band_low_krw'])}~{_trillion_number(consensus['band_high_krw'])}조"
+        if exact:
+            facts["consensus_value"] = _krw_text(center)
+            facts["consensus_note"] = (
+                f"연간 {_trillion_number(consensus['annual_mean_krw'])}조 − {_ytd_label(consensus)} "
+                f"{_trillion_number(consensus['ytd_actual_krw'])}조 · 기준일 {consensus['consensus_as_of']}"
+            )
+        else:
+            facts["consensus_value"] = f"≈{_krw_text(center)}"
+            facts["consensus_note"] = (
+                f"연간 컨센서스 환산(근사) · 범위 {band} · 기준일 {consensus['consensus_as_of']}"
+            )
+    else:
+        facts["consensus_note"] = _CONSENSUS_UNAVAILABLE_NOTES.get(consensus.get("status"), "컨센서스 없음")
+
+    if comparison.get("status") == forecaster.COMPARISON_STATUS_OK:
+        facts["surprise_value"] = _pct_text(comparison["surprise_pct"])
+        strength = comparison["strength"]
+        facts["surprise_note"] = comparison["position"] + (f"({strength})" if strength else "")
+        if comparison["dist_position_pct"] is not None:
+            facts["dist_value"] = f"{comparison['dist_position_pct']:.0f}%"
+            low, high = _trillion_number(consensus["dist_low_krw"]), _trillion_number(consensus["dist_high_krw"])
+            facts["dist_note"] = (
+                f"애널리스트 최저 {low}조 ~ 최고 {high}조 중" if exact else f"환산 범위 {low}~{high}조 기준 위치"
+            )
+        else:
+            facts["dist_note"] = "컨센서스 최저와 최고가 같아 위치를 계산할 수 없음"
+    else:
+        facts["surprise_note"] = "추정치 또는 분기 컨센서스가 없어 비교할 수 없음"
+        facts["dist_note"] = facts["surprise_note"]
+
+    if ok and consensus["revision_pct"] is not None:
+        facts["revision_value"] = _pct_text(consensus["revision_pct"])
+        facts["revision_note"] = (
+            f"연간 컨센서스 {_trillion_number(consensus['revision_base_krw'])}조({consensus['revision_base_as_of']}) "
+            f"→ {_trillion_number(consensus['annual_mean_krw'])}조"
+        )
+    else:
+        facts["revision_note"] = "비교할 30일 전 컨센서스 자료 없음"
+
+    facts["direction_value"] = price_impact["direction"]
+    facts["direction_note"] = price_impact["reasons"][0] if price_impact["reasons"] else ""
+    facts["confidence_note"] = "근거 데이터 충분도 점수이며 주가 상승 확률이 아님"
+    parts = price_impact["confidence_parts"]
+    if price_impact["confidence"] is not None and parts:
+        facts["confidence_value"] = f"{price_impact['confidence']}점"
+        facts["confidence_help"] = (
+            f"수출 반영 개월 {parts['months']:.1f} + 신호 강도 {parts['strength']:.1f} + "
+            f"컨센서스 합의도 {parts['agreement']:.1f} + 최신성 {parts['freshness']:.1f} − "
+            f"환산 감점 {parts['allocation_penalty']:.1f} (최대 40 + 30 + 15 + 15)"
+        )
+    else:
+        facts["confidence_help"] = "컨센서스 비교를 할 수 없어 신뢰도를 계산하지 않았습니다."
+    return facts
+
+
+def _trillion_number(value: float) -> str:
+    """원 단위 금액을 조 단위 소수 첫째 자리 숫자 문자열로 바꾼다.
+
+    Returns:
+        "363.0" 같은 문자열.
+    """
+    return f"{value / KRW_PER_TRILLION:.1f}"
+
+
+def _ytd_label(consensus: dict) -> str:
+    """연간 컨센서스에서 뺀 실적의 분기 구간 이름을 만든다.
+
+    Returns:
+        "1~3Q 실적", "1Q 실적" 또는 "발표된 실적".
+    """
+    previous_quarters = 4 - consensus["remaining_quarters"]
+    if previous_quarters <= 0:
+        return "발표된 실적"
+    return "1Q 실적" if previous_quarters == 1 else f"1~{previous_quarters}Q 실적"
 
 
 def read_exports(data_dir: Path = DEFAULT_DATA_DIR) -> pd.DataFrame:
@@ -410,7 +527,7 @@ def _paths(data_dir: Path) -> dict[str, Path]:
     """data 폴더 안의 고정 경로를 모은다.
 
     Returns:
-        {"exports", "fx", "actuals", "forecasts", "transcripts"} -> Path.
+        {"exports", "fx", "actuals", "forecasts", "transcripts", "consensus", "raw_exports"} -> Path.
     """
     data_dir = Path(data_dir)
     return {
@@ -419,6 +536,7 @@ def _paths(data_dir: Path) -> dict[str, Path]:
         "actuals": data_dir / "actuals.csv",
         "forecasts": data_dir / "forecasts.csv",
         "transcripts": data_dir / "transcripts",
+        "consensus": data_dir / "consensus.csv",
         "raw_exports": data_dir / "raw_exports_last.csv",
     }
 
@@ -475,6 +593,23 @@ def _save_forecast(path: Path, forecast: dict, as_of: str) -> pd.DataFrame:
     forecasts = forecasts.loc[:, list(FORECASTS_COLUMNS)]
     _write_table(forecasts, path)
     return forecasts
+
+
+def _read_consensus(path: Path) -> pd.DataFrame:
+    """연간 매출 컨센서스(data/consensus.csv)를 읽는다.
+
+    Returns:
+        consensus 표. 파일이 없으면(선택 자료) dtype을 지정한 0행 표.
+
+    Raises:
+        ValueError: consensus.csv 형식 오류 (load_consensus의 메시지 그대로).
+    """
+    if not path.exists():
+        empty = {column: pd.Series(dtype=str) for column in data_loader.CONSENSUS_COLUMNS}
+        empty["fiscal_year"] = pd.Series(dtype="int64")
+        empty.update({column: pd.Series(dtype="float64") for column in data_loader.CONSENSUS_AMOUNT_COLUMNS})
+        return pd.DataFrame(empty).loc[:, list(data_loader.CONSENSUS_COLUMNS)]
+    return data_loader.load_consensus(str(path))
 
 
 def _quarter_history(forecasts: pd.DataFrame, quarter: str) -> pd.DataFrame:
@@ -711,6 +846,15 @@ def _print_report(result: dict) -> None:
     print(
         f"[일치 여부] {consistency['status']} "
         f"(예측 {consistency['forecast_direction'] or '없음'}, 가이던스 {consistency['guidance_direction'] or '없음'})"
+    )
+    cfacts = result["consensus_facts"]
+    print(
+        f"[컨센서스] 분기 {cfacts['consensus_value']} ({cfacts['consensus_note']}), "
+        f"괴리율 {cfacts['surprise_value']} {cfacts['surprise_note']}, 1개월 리비전 {cfacts['revision_value']}"
+    )
+    print(
+        f"[주가 영향] {cfacts['direction_value']} (신뢰도 {cfacts['confidence_value']}, 확률 아님) "
+        f"- {cfacts['direction_note']}"
     )
     print(f"[브리프] {result['brief']}")
     print("[예측 이력]")

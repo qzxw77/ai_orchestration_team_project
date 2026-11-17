@@ -71,6 +71,23 @@ Streamlit은 사이드바 필터를 하나만 움직여도 `app.py` 전체를 �
 | `forecast_cache_key`, `forecast_result` | B | 마지막으로 예측한 (업로드, 분기)와 예측 결과 | 같은 업로드, 같은 분기면 다시 예측하지 않음. data 폴더 파일을 바꿨을 때는 '최신 자료로 다시 예측' 버튼으로 새로 실행 |
 | `exports_months`, `exports_regions` | C | 사이드바 차트 기간과 고른 지역 (위젯 key) | 처음 기본값을 정하고, 자료에 없는 지역이 선택에 남지 않게 정리 |
 
+## 시장 컨센서스 비교와 주가 영향 판단
+
+매출 예측 지표 아래에 FnGuide 매출 컨센서스와 우리 추정을 비교한 카드 6개가 나옵니다. 설계는 `신동훈/consensus_price_impact_design.md`에 있습니다.
+
+| 카드 | 계산 |
+|---|---|
+| 시장 컨센서스 (대상 분기) | 연간(FY1) 컨센서스 − 그해 발표된 분기 실적. 4분기는 정확한 값이고, 1~3분기는 남은 분기에 나눈 근사값(≈, 세 방법의 중앙값) |
+| 예상 괴리율 | (예상 매출 ÷ 분기 컨센서스 − 1) × 100과 상회, 부합, 하회 판정 |
+| 컨센서스 분포 안 위치 | 예상 매출이 애널리스트 최저~최고 전망 사이 어디인지(%) |
+| 컨센서스 추세 (1개월) | 연간 컨센서스의 30일 전 대비 변화율 |
+| 주가 영향 방향 | 상회 → 긍정, 하회 → 부정, 부합이면 리비전 ±3%로 판단 |
+| 판단 신뢰도 | 수출 반영 개월, 신호 강도, 컨센서스 합의도, 최신성으로 매긴 0~100점 (주가 상승 확률이 아님) |
+
+- 입력: `data/consensus.csv` (커밋함). 열은 as_of, fiscal_year, mean_krw, high_krw, low_krw, median_krw, source이고 금액은 원 단위입니다.
+- 갱신: DataGuide 엑셀을 새로 받아 FY1 매출액(평균, 최고, 최저, 중앙값)의 새 날짜 행을 이어 붙입니다. 억 원 값에 1억(1e8)을 곱하고, fiscal_year는 그 날짜가 전년도 4분기 실적 발표일(actuals.csv) 이후면 그해, 이전이면 전년입니다.
+- 파일이 없으면 오류 없이 카드에 "—"와 이유가 표시됩니다. 형식이 틀리면 예측 오류와 함께 원인이 표시됩니다.
+
 ## 검증, 과정 기록, 알려진 문제
 
 - 수동 검증 기록(① 정상 CSV ② cp949 CSV ③ 컬럼 누락 CSV): manual_test_log.md
@@ -86,7 +103,7 @@ Streamlit은 사이드바 필터를 하나만 움직여도 `app.py` 전체를 �
 | `backend.py` | 백엔드 통합 파일. 10주차 `main.py`에서 이름만 바꿈 |
 | `hynix_nowcast/` | 수집, 정제, 예측, LLM 모듈 |
 | `prompts/` | LLM 프롬프트 |
-| `data/` | `actuals.csv`, `transcripts/`. 실행하면 `exports.csv`, `fx.csv`, `forecasts.csv`, `raw_exports_last.csv`가 생기며 커밋하지 않음 |
+| `data/` | `actuals.csv`, `consensus.csv`, `transcripts/`. 실행하면 `exports.csv`, `fx.csv`, `forecasts.csv`, `raw_exports_last.csv`가 생기며 커밋하지 않음 |
 | `samples/` | 수동 검증용 CSV |
 | `requirements.txt` | 라이브러리 목록 (streamlit 포함) |
 | `.env.example` | API 키 양식 (값은 비워 둠) |

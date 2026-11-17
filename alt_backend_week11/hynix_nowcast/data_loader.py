@@ -3,6 +3,7 @@
     fetch_regional_exports  관세청 API -> 이천시, 청주시가 속한 시도의 HS 854232 월별 수출 원자료
     fetch_fx_rates          한국은행 ECOS API -> 일별 원/달러 환율
     load_actuals            팀이 DART 공시로 작성한 분기 확정 매출 CSV
+    load_consensus          팀이 FnGuide 엑셀로 작성한 연간(FY1) 매출 컨센서스 CSV
 
 API 키는 .env에서 읽는다. 키가 든 요청 URL이 오류 메시지나 traceback에 남지 않도록,
 API 오류는 원인(예외 이름, HTTP 상태, 결과 코드)만 담은 RuntimeError로 바꿔 from None으로 올린다.
@@ -53,6 +54,10 @@ ECOS_NO_DATA_CODE = "INFO-200"
 
 FX_COLUMNS = ("date", "usdkrw")
 ACTUALS_COLUMNS = ("quarter", "revenue_krw", "announced_date")
+CONSENSUS_COLUMNS = ("as_of", "fiscal_year", "mean_krw", "high_krw", "low_krw", "median_krw", "source")
+CONSENSUS_AMOUNT_COLUMNS = ("mean_krw", "high_krw", "low_krw", "median_krw")
+YEAR_PATTERN = re.compile(r"[0-9]{4}")
+MAX_ERRORS_SHOWN = 5
 COLLECTED_AT_COLUMN = "collected_at"
 
 # 프로세스가 시작된 뒤 보낸 요청 수 (일일 호출 한도 확인용, backend.py가 실행 전후 차이를 보여 준다)
@@ -407,6 +412,76 @@ def load_actuals(filepath: str) -> pd.DataFrame:
     if duplicated:
         raise ValueError(f"actuals.csv 분기 중복: {', '.join(duplicated)}")
     return actuals.sort_values("quarter").reset_index(drop=True)
+
+
+def load_consensus(filepath: str) -> pd.DataFrame:
+    """연간 매출 컨센서스 CSV(data/consensus.csv)를 검증해 consensus 표로 읽는다.
+
+    FnGuide DataGuide 엑셀의 FY1 매출액(평균, 최고, 최저, 중앙값)을 팀이 원 단위로 옮긴 파일이다.
+    잘못된 행은 지우지 않고 ValueError로 알린다(사람이 고쳐야 하는 파일). 금액의 천 단위 쉼표는 지우고 읽는다.
+
+    Args:
+        filepath: CSV 경로. 열은 as_of, fiscal_year, mean_krw, high_krw, low_krw, median_krw, source.
+
+    Returns:
+        consensus 표 (as_of: str, fiscal_year: int64, 금액 4개: float64(원), source: str). as_of 오름차순.
+
+    Raises:
+        FileNotFoundError: 파일이 없을 때.
+        ValueError: "필수 열 누락: <열>", "consensus.csv 형식 오류: <행 번호와 값>",
+            "consensus.csv 날짜 중복: <날짜>", "consensus.csv 인코딩 오류: ...".
+    """
+    try:
+        raw = pd.read_csv(filepath, encoding="utf-8-sig", dtype=str, keep_default_na=False, skip_blank_lines=False)
+    except UnicodeDecodeError:
+        raise ValueError(
+            "consensus.csv 인코딩 오류: UTF-8로 저장해 주세요 (엑셀은 'CSV UTF-8(쉼표로 분리)'로 저장)"
+        ) from None
+    except pd.errors.EmptyDataError:
+        raise ValueError(f"필수 열 누락: {', '.join(CONSENSUS_COLUMNS)}") from None
+    except pd.errors.ParserError:
+        raise ValueError("consensus.csv 형식 오류: 열 개수가 맞지 않는 줄이 있습니다") from None
+
+    raw.columns = [str(column).strip() for column in raw.columns]
+    missing = [column for column in CONSENSUS_COLUMNS if column not in raw.columns]
+    if missing:
+        raise ValueError(f"필수 열 누락: {', '.join(missing)}")
+
+    errors: list[str] = []
+    records: list[tuple] = []
+    for row_index, row in raw.loc[:, list(CONSENSUS_COLUMNS)].iterrows():
+        values = {column: str(row[column]).strip() for column in CONSENSUS_COLUMNS}
+        if not any(values.values()):
+            continue
+        line = f"{row_index + 2}행"  # 1행은 열 이름
+        as_of, year_text = values["as_of"], values["fiscal_year"]
+        if not DATE_PATTERN.fullmatch(as_of) or _to_date(as_of) is None:
+            errors.append(f"{line} as_of '{as_of}'")
+        if not YEAR_PATTERN.fullmatch(year_text):
+            errors.append(f"{line} fiscal_year '{year_text}'")
+        amounts = {}
+        for column in CONSENSUS_AMOUNT_COLUMNS:
+            amount = _to_float(values[column].replace(",", ""))
+            if amount is None or amount <= 0:
+                errors.append(f"{line} {column} '{values[column]}'")
+            amounts[column] = amount or 0.0
+        if all(amounts.values()) and not amounts["low_krw"] <= amounts["mean_krw"] <= amounts["high_krw"]:
+            errors.append(f"{line} low_krw <= mean_krw <= high_krw 아님")
+        records.append(
+            (as_of, int(year_text) if YEAR_PATTERN.fullmatch(year_text) else 0, *amounts.values(), values["source"])
+        )
+    if errors:
+        more = f" 외 {len(errors) - MAX_ERRORS_SHOWN}건" if len(errors) > MAX_ERRORS_SHOWN else ""
+        raise ValueError("consensus.csv 형식 오류: " + "; ".join(errors[:MAX_ERRORS_SHOWN]) + more)
+
+    consensus = pd.DataFrame(
+        records, columns=["as_of", "fiscal_year", *CONSENSUS_AMOUNT_COLUMNS, "source"]
+    ).astype({"as_of": str, "fiscal_year": "int64", **{column: "float64" for column in CONSENSUS_AMOUNT_COLUMNS}})
+    consensus = consensus.loc[:, list(CONSENSUS_COLUMNS)]
+    duplicated = consensus.loc[consensus["as_of"].duplicated(), "as_of"].unique().tolist()
+    if duplicated:
+        raise ValueError(f"consensus.csv 날짜 중복: {', '.join(duplicated)}")
+    return consensus.sort_values("as_of").reset_index(drop=True)
 
 
 def _to_float(text: str) -> float | None:
