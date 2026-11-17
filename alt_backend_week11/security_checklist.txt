@@ -1,0 +1,40 @@
+11주차
+데이터 S1 제출물에 실존 인물의 실명, 전화번호, 이메일 등 PII가 포함되지 않았다. (더미 데이터 사용)
+예
+근거: 수동 검증에 쓴 samples/exports_normal.csv, exports_cp949.csv, missing_column.csv는 관세청 시군구별 수출 공개 통계(기간, 시군구, HS 코드, 품목명, 수출입 금액, 수집일)로 개인 정보 열이 없음. 이름은 app.py 주석, README, 과정 기록의 담당자 표기에만 있음
+
+데이터 S2 외부 AI(챗봇, API)에 기업 기밀, 타인 코드, PII를 입력하지 않았다.
+예
+근거: Claude에는 팀 저장소의 백엔드 코드, 11주차 강의 PDF, 공개 통계로 만든 샘플 CSV와 실행 화면 캡처만 넣었음. 올린 백엔드 zip에는 .env가 없고 값이 빈 .env.example만 있었으며, API 키와 개인정보는 넣지 않았음
+
+데이터 S3 외부 데이터 사용 시 출처, 라이선스를 확인하고 PII 열을 비식별 처리했다.
+예
+근거: 업로드 CSV는 공공데이터포털 '관세청_시군구별 품목별 수출입실적' Open API로 받은 공개 통계이고, 환율은 한국은행 ECOS 원/달러 매매기준율, 실적은 SK하이닉스 공시 실적으로 모두 개인정보 열이 없는 공개 자료임. 이용 조건은 각 제공처의 Open API 이용약관을 따르고 출처는 README에 표기함
+
+키 관리 S4 API 키, 비밀번호가 소스코드에 하드코딩되어 있지 않다.
+예
+근거: app.py는 키를 쓰지 않고 backend 함수만 호출함. 백엔드는 data_loader.py, llm_module.py에서 load_dotenv() 후 os.getenv()로만 키를 읽음. git grep -n -E "sk-ant|serviceKey=" -- "*.py" 결과 없음 (팀원 PR 머지 후 제출 전에 다시 확인)
+
+키 관리 S5 .env 파일이 .gitignore에 등록되어 있고, git ls-files 확인 결과 추적되지 않는다.
+예
+근거: 최상위 .gitignore 5~7줄에 .env, .env.*, !.env.example이 등록되어 있고, git check-ignore -v alt_backend_week11/.env 결과 .gitignore:5 규칙으로 무시됨. git ls-files 결과에 .env가 없음. 이번 주에 하위 폴더에서도 적용되도록 **/.streamlit/secrets.toml과 실행하면 생기는 data CSV 4개(exports, fx, forecasts, raw_exports_last)를 **/data/ 규칙으로 추가함
+
+키 관리 S6 커밋 히스토리에 키가 노출된 적이 없다 (노출 시 폐기, 재발급 완료를 명기).
+예
+근거: git log --all --oneline --name-only 결과에 .env 파일이 한 번도 없음. 
+
+키 관리 S7 키, 비밀 값을 print/log/스크린샷으로 전체 출력하지 않았다.
+예
+근거: app.py에는 print, logging이 없고 화면에 키를 표시하지 않음. 
+
+AI 사용 S8 AI 사용 내역(프롬프트, 채택, 수정)을 과제 규정에 따라 기록, 첨부했다.
+예
+근거: ai_log/mingyu_app_py.md에 프롬프트 요지, 생성 코드 요지와 커밋 b6fc8d5, 발견한 문제와 수정 내역, 수동 검증 결과(캡처 4장)를 기록함. 
+
+AI 사용 S9 (LLM 기능 포함 시) 사용자 입력 검증과 출력 검증(형식 확인)을 적용했다.
+예
+근거: 화면은 백엔드 generate_brief가 만든 브리프를 보여 주며, ANTHROPIC_API_KEY가 없으면 mock 문장([MOCK])으로 동작함. 입력: 업로드 CSV는 clean_exports가 필수 열, 월, 지역 형식을 검사하고, 업로드 내용은 LLM 프롬프트에 그대로 들어가지 않고 계산된 숫자(facts)만 들어감. 출력: generate_brief가 문장 수, facts에 없는 숫자, 매수와 매도 같은 권유 표현을 검사해 어긋나면 정해진 문장 틀로 대체함
+
+AI 사용 S10 (LLM 기능 포함 시) 시스템 프롬프트에 비밀 정보를 포함하지 않았다.
+예
+근거: 브리프와 가이던스 프롬프트는 prompts/brief_generation.txt, prompts/guidance_extraction.txt의 작성 지시문뿐이고 키나 비밀 값이 없음. API 키는 .env에서만 읽어 프롬프트 문자열에 넣지 않음
