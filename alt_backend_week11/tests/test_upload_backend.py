@@ -76,8 +76,8 @@ def test_same_upload_twice_adds_nothing(sample_raw, tmp_path):
     first = backend.import_exports(sample_raw, data_dir=tmp_path, today=TODAY)
     second = backend.import_exports(sample_raw, data_dir=tmp_path, today=TODAY)
 
-    assert first["added"] == 68
-    assert second["added"] == 0
+    assert (first["added"], first["updated"]) == (68, 0)
+    assert (second["added"], second["updated"]) == (0, 68)
     assert len(second["exports"]) == 68
 
 
@@ -87,7 +87,7 @@ def test_header_only_csv_returns_zero_clean_rows(sample_raw, tmp_path):
 
     result = backend.import_exports(raw, data_dir=tmp_path, today=TODAY)
 
-    assert (result["raw_rows"], result["clean_rows"], result["added"]) == (0, 0, 0)
+    assert (result["raw_rows"], result["clean_rows"], result["added"], result["updated"]) == (0, 0, 0, 0)
 
 
 # =============================================================================
@@ -116,3 +116,25 @@ def test_unreadable_errors_are_still_value_error_subclasses(sample_raw):
     for payload in (b"", sample_raw.head(5).to_csv(index=False).encode("utf-16")):
         with pytest.raises(ValueError):
             backend.read_uploaded_csv(io.BytesIO(payload))
+
+
+def test_upload_with_existing_and_new_month_counts_both(tmp_path):
+    first = pd.DataFrame([
+        {"ym": "2026-09", "region": "이천시", "hs_code": "854232", "export_usd": "100", "collected_at": "2026-10-01"},
+        {"ym": "2026-09", "region": "청주시", "hs_code": "854232", "export_usd": "200", "collected_at": "2026-10-01"},
+    ])
+    second = pd.DataFrame([
+        {"ym": "2026-09", "region": "이천시", "hs_code": "854232", "export_usd": "300", "collected_at": "2026-11-01"},
+        {"ym": "2026-10", "region": "청주시", "hs_code": "854232", "export_usd": "400", "collected_at": "2026-11-01"},
+    ])
+
+    backend.import_exports(first, data_dir=tmp_path, today=TODAY)
+    result = backend.import_exports(second, data_dir=tmp_path, today=TODAY)
+
+    assert (result["clean_rows"], result["added"], result["updated"]) == (2, 1, 1)
+    assert len(result["exports"]) == 3
+    replaced = result["exports"].loc[
+        (result["exports"]["ym"] == "2026-09") & (result["exports"]["region"] == "이천시"),
+        "export_usd",
+    ]
+    assert replaced.tolist() == [300.0]

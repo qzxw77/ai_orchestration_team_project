@@ -295,6 +295,7 @@ def import_exports(raw_df: pd.DataFrame, data_dir: Path = DEFAULT_DATA_DIR, toda
             exports (DataFrame): 저장한 exports 표
             raw_rows, clean_rows (int): 올린 행 수, 정제 후 남은 행 수
             added (int): 저장 표에서 늘어난 행 수
+            updated (int): 이번 업로드의 정제된 키 중 기존 저장 표와 겹쳐 교체한 행 수
 
     Raises:
         ValueError: "필수 열 누락: ..." (clean_exports). 저장하지 않는다.
@@ -306,9 +307,18 @@ def import_exports(raw_df: pd.DataFrame, data_dir: Path = DEFAULT_DATA_DIR, toda
     if data_loader.COLLECTED_AT_COLUMN not in {str(column).strip() for column in raw_df.columns}:
         new_exports[data_loader.COLLECTED_AT_COLUMN] = (today or date.today()).strftime("%Y-%m-%d")
     stored = read_exports(data_dir)
+    stored_keys = stored[EXPORTS_KEY_COLUMNS].drop_duplicates()
+    new_keys = new_exports[EXPORTS_KEY_COLUMNS].drop_duplicates()
+    updated = len(new_keys.merge(stored_keys, on=EXPORTS_KEY_COLUMNS, how="inner"))
     exports = preprocess.upsert_records(stored, new_exports, EXPORTS_KEY_COLUMNS)
     _write_table(exports, _paths(data_dir)["exports"])
-    return {"exports": exports, "raw_rows": len(raw_df), "clean_rows": len(new_exports), "added": len(exports) - len(stored)}
+    return {
+        "exports": exports,
+        "raw_rows": len(raw_df),
+        "clean_rows": len(new_exports),
+        "added": len(exports) - len(stored),
+        "updated": updated,
+    }
 
 
 def exports_chart_table(exports: pd.DataFrame, last_months: int = CHART_MONTHS) -> pd.DataFrame:
