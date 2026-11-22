@@ -34,7 +34,7 @@ def load_upload() -> dict:
         반환 dict
             key (tuple): (파일 이름, 파일 크기). 같은 파일인지 알아보는 값
             raw (DataFrame): backend.read_uploaded_csv 결과. 올린 원본 그대로(모든 값 문자열)
-            imported (dict): backend.import_exports 결과. exports(DataFrame), raw_rows, clean_rows, added(int)
+            imported (dict): backend.import_exports 결과. exports(DataFrame), raw_rows, clean_rows, added, updated(int)
         업로드 전이거나 처리할 수 없는 파일이면 반환하지 않고 st.stop()으로 멈춘다.
 
     구현 메모:
@@ -253,7 +253,7 @@ def render_exports(upload: dict) -> None:
     st.subheader("이천시 · 청주시 수출 현황")
     st.caption("메모리 반도체 HS 854232 | 업로드 반영 결과와 월별 추이")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
         "올린 행",
@@ -266,11 +266,20 @@ def render_exports(upload: dict) -> None:
         help="백엔드에서 대상 지역과 품목으로 정제한 행 수입니다.",
     )
     col3.metric(
-        "새로 늘어난 행",
+        "새로 추가된 행",
         f"{imported['added']:,}행",
-        help="저장된 전체 표에서 늘어난 행 수입니다. 기존 행의 값 갱신은 포함하지 않습니다.",
+        help="이번 업로드에서 저장 표에 없던 월·지역·품목의 행 수입니다.",
+    )
+    col4.metric(
+        "기존 행 갱신",
+        f"{imported['updated']:,}행",
+        help="이번 업로드의 키가 저장 표에 이미 있어 새 행으로 교체한 수입니다.",
     )
 
+    st.caption(
+        "같은 월·지역·품목이 이미 저장돼 있으면 새 값으로 갱신하고, 없던 달이면 추가합니다. "
+        "예: 2026-09까지 저장된 상태에서 2026-10까지 든 파일을 올리면 10월의 이천시·청주시 2행이 추가되고 나머지는 갱신됩니다."
+    )
     st.caption("위 지표는 업로드 반영 결과이며, 아래 필터는 차트에만 적용됩니다.")
 
     # 다른 구역의 상태는 변경하지 않는다.
