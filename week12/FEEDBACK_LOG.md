@@ -1,4 +1,4 @@
-# 타 팀 피드백 반영 리포트 (FEEDBACK_LOG)
+<img width="964" height="455" alt="image" src="https://github.com/user-attachments/assets/1cd1adb6-d1b6-462f-a0d6-82dfc7055e2b" /># 타 팀 피드백 반영 리포트 (FEEDBACK_LOG)
 
 - 대상: 알트(ALT) 11주차 Streamlit 대시보드 (`app.py`, `backend.py`)
 - 받은 피드백: 8건 <!-- 피드백을 준 팀과 받은 날짜를 적는다 -->
@@ -82,7 +82,7 @@
 
 **② 수정 전 화면과 동작**
 
-![F4 수정 전](feedback/F4_before.png)
+<img width="964" height="455" alt="image" src="https://github.com/user-attachments/assets/ec298875-f4c3-4a3d-9323-3bcceecee31c" />
 <!-- 캡처: 차트의 한 점에 마우스를 올려 툴팁이 보이는 화면 -->
 
 - 툴팁 항목 이름이 `ym`, `value`, `color`로 나오고, 값은 `31.17140`처럼 소수 다섯째 자리까지 나온다.
