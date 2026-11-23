@@ -15,6 +15,7 @@
    (같은 key가 두 번 그려지면 DuplicateWidgetID 오류가 난다)
 """
 
+import altair as alt
 import streamlit as st
 
 import backend
@@ -331,7 +332,31 @@ def render_exports(upload: dict) -> None:
         "단위: 억 달러 / 출처: 관세청 시군구별 수출"
     )
 
-    st.line_chart(table, y=regions, height=380)
+    chart = (
+        alt.Chart(backend.exports_chart_long(imported["exports"], last_months=months))
+        .transform_filter(alt.FieldOneOfPredicate(field="region", oneOf=regions))
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("ym:O", title="월"),
+            y=alt.Y(
+                "export_100m_usd:Q",
+                title="수출 (억 달러)",
+                axis=alt.Axis(format=",.1f"),
+            ),
+            color=alt.Color("region:N", title="지역"),
+            tooltip=[
+                alt.Tooltip("ym:O", title="월"),
+                alt.Tooltip("region:N", title="지역"),
+                alt.Tooltip(
+                    "export_100m_usd:Q",
+                    title="수출 (억 달러)",
+                    format=",.2f",
+                ),
+            ],
+        )
+        .properties(height=380)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 # =============================================================================
 # D. 브리프와 상세 표 (담당: 이다현)
