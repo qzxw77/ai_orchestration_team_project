@@ -332,6 +332,28 @@ def exports_chart_table(exports: pd.DataFrame, last_months: int = CHART_MONTHS) 
     return (table / USD_PER_100M).sort_index().tail(last_months)
 
 
+def exports_chart_long(exports: pd.DataFrame, last_months: int = CHART_MONTHS) -> pd.DataFrame:
+    """Altair 차트용으로 이천시·청주시 월별 수출을 긴 표로 만든다.
+
+    Returns:
+        열이 ym, region, export_100m_usd인 표. 행은 최근 last_months개월과 허용 지역만 포함한다.
+    """
+    target = exports.loc[
+        exports["region"].isin(preprocess.ALLOWED_REGIONS),
+        ["ym", "region", "export_usd"],
+    ]
+    grouped = (
+        target.groupby(["ym", "region"], as_index=False)["export_usd"]
+        .sum()
+        .assign(export_100m_usd=lambda frame: frame["export_usd"] / USD_PER_100M)
+    )
+    recent_months = sorted(grouped["ym"].dropna().unique())[-last_months:]
+    return grouped.loc[
+        grouped["ym"].isin(recent_months),
+        ["ym", "region", "export_100m_usd"],
+    ].sort_values(["ym", "region"]).reset_index(drop=True)
+
+
 def list_target_quarters(data_dir: Path = DEFAULT_DATA_DIR, today: date | None = None) -> list[str]:
     """대상 분기 선택 목록을 만든다: 진행 중인 분기 + 수출 자료가 있는 분기.
 

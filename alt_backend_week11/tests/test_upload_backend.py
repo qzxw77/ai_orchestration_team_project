@@ -138,3 +138,19 @@ def test_upload_with_existing_and_new_month_counts_both(tmp_path):
         "export_usd",
     ]
     assert replaced.tolist() == [300.0]
+
+
+def test_exports_chart_long_returns_recent_month_region_values():
+    exports = pd.DataFrame([
+        {"ym": "2026-08", "region": "이천시", "export_usd": 100_000_000.0},
+        {"ym": "2026-09", "region": "이천시", "export_usd": 123_456_789.0},
+        {"ym": "2026-09", "region": "청주시", "export_usd": 200_000_000.0},
+        {"ym": "2026-09", "region": "용인시", "export_usd": 300_000_000.0},
+    ])
+
+    chart = backend.exports_chart_long(exports, last_months=1)
+
+    assert list(chart.columns) == ["ym", "region", "export_100m_usd"]
+    assert chart["ym"].tolist() == ["2026-09", "2026-09"]
+    assert chart["region"].tolist() == ["이천시", "청주시"]
+    assert chart["export_100m_usd"].tolist() == [1.23456789, 2.0]
