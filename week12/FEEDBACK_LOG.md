@@ -85,7 +85,7 @@
 <img width="964" height="455" alt="image" src="https://github.com/user-attachments/assets/ec298875-f4c3-4a3d-9323-3bcceecee31c" />
 <!-- 캡처: 차트의 한 점에 마우스를 올려 툴팁이 보이는 화면 -->
 
-- 툴팁 항목 이름이 `ym`, `value`, `color`로 나오고, 값은 `31.17140`처럼 소수 다섯째 자리까지 나온다.
+- 툴팁 항목 이름이 `ym`, `value`, `color`로 나오고, 값은 `27.16402`처럼 소수 다섯째 자리까지 나온다.
 - 원인: `st.line_chart`는 지역별 열을 내부에서 긴 표로 바꿔 그리며, 툴팁 제목을 표의 index 이름(`ym`)과 고정된 이름(`value`, `color`)으로 정한다. 숫자 형식을 정하는 인자도 없다. `x_label`, `y_label`은 축 이름만 바꾸고 툴팁에는 적용되지 않는다.
 
 **③ 수정 내용과 근거**
