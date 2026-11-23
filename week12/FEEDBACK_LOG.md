@@ -1,4 +1,4 @@
-<img width="964" height="455" alt="image" src="https://github.com/user-attachments/assets/1cd1adb6-d1b6-462f-a0d6-82dfc7055e2b" /># 타 팀 피드백 반영 리포트 (FEEDBACK_LOG)
+# 타 팀 피드백 반영 리포트 (FEEDBACK_LOG)
 
 - 대상: 알트(ALT) 11주차 Streamlit 대시보드 (`app.py`, `backend.py`)
 - 받은 피드백: 8건 <!-- 피드백을 준 팀과 받은 날짜를 적는다 -->
@@ -95,7 +95,7 @@
 | 파일, 함수 | 수정 | 리뷰 |
 |---|---|---|
 | `backend.py` | 차트용 긴 표를 돌려주는 `exports_chart_long(exports, last_months)`를 `exports_chart_table` 바로 아래에 추가. 열은 `ym`, `region`, `export_100m_usd`(억 달러, 반올림하지 않음) | 조현모 |
-| `app.py` `render_exports`의 차트 부분 | `st.line_chart`를 `st.altair_chart`로 바꾸고, 툴팁 제목을 월, 지역, 수출(억 달러)로, 값 형식을 소수 둘째 자리로 지정. 지역 선택은 `transform_filter`로 반영. 업로드 결과 지표 부분은 고치지 않음 | |
+| `app.py` `render_exports`의 차트 부분 | `st.line_chart`를 `st.altair_chart`로 바꾸고, 툴팁 제목을 월, 지역, 수출(억 달러)로, 값 형식을 소수 둘째 자리로 지정. 지역 선택은 `transform_filter`로 반영. 업로드 결과 지표 부분은 고치지 않음 | 신해성 |
 | `app.py` 맨 위 import 줄 | `import altair as alt` 추가 | 강민규 |
 
 ```python
