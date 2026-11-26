@@ -71,6 +71,31 @@ Streamlit은 사이드바 필터를 하나만 움직여도 `app.py` 전체를 �
 | `forecast_cache_key`, `forecast_result` | B | 마지막으로 예측한 (업로드, 분기)와 예측 결과 | 같은 업로드, 같은 분기면 다시 예측하지 않음. data 폴더 파일을 바꿨을 때는 '최신 자료로 다시 예측' 버튼으로 새로 실행 |
 | `exports_months`, `exports_regions` | C | 사이드바 차트 기간과 고른 지역 (위젯 key) | 처음 기본값을 정하고, 자료에 없는 지역이 선택에 남지 않게 정리 |
 
+## 매출 추정 비율 규칙 (ratio_rule, 13주차 개선)
+
+`estimate_revenue`는 "분기 수출 x 비율 x 환율"로 매출을 추정합니다. 비율 = (매출 / 환율) / 이천·청주 HS 854232 수출이고, 기준 분기 4개(`RATIO_WINDOW`)로 대상 분기에 쓸 비율을 정합니다.
+
+| ratio_rule | 적용 비율 | 비고 |
+|---|---|---|
+| `avg` | 기준 분기 비율 4개의 평균 | 12주차까지의 방식 |
+| `last` | 가장 최근 기준 분기의 비율 | |
+| `drift` (기본값) | 최근 비율 x exp(기준 분기 사이 로그 비율 변화의 평균) | 비율 추세를 한 분기 연장 |
+
+**바꾼 이유:** 비율이 2024~2025년 1.8~2.3에서 2026년 2.70 → 3.19 → 3.78로 계속 올라, 4개 분기 평균(`avg`)이 한두 분기씩 늦게 따라가며 2026년 추정이 매번 −34~−41% 낮았습니다.
+
+**시점 기준 백테스트** (`python backtest_ratio_rule.py`, 샘플 수출 2024.01~2026.10, 각 달 수출은 다음 달 15일에 공개된다고 가정, 공개일 이전 환율·실적만 사용, 21개 시점):
+
+| ratio_rule | MAPE | 편향(평균 오차) | 3개월 반영 시점 MAPE |
+|---|---|---|---|
+| avg | 20.6% | −14.9% | 18.2% |
+| last | 14.7% | −12.3% | 11.9% |
+| **drift** | **11.9%** | −10.1% | **8.6%** |
+
+- 하한, 상한은 기준 비율 최솟값·최댓값과 적용 비율 중 최솟값·최댓값으로 정합니다(drift는 기준 비율 범위 밖으로 나갈 수 있음). `avg`에서는 예전과 같은 값입니다.
+- **한계:** 독립 분기가 7개(2025Q1~2026Q3)뿐인 표본에서 고른 규칙이라 과최적화 위험이 있습니다. 비율 추세가 꺾인 2025Q3~Q4에는 drift 오차가 avg보다 컸습니다(3개월 반영 시점 −10.7%, −12.1%). 2026Q4 실적(2027년 1월 발표)으로 표본 밖 검증이 필요합니다.
+- 예전 방식으로 되돌리려면 `forecaster.DEFAULT_RATIO_RULE = forecaster.RATIO_RULE_AVG`로 바꾸거나 `estimate_revenue(..., ratio_rule="avg")`로 부릅니다.
+- `tests/test_ratio_rule.py`의 B02가 샘플 자료에서 drift MAPE < avg MAPE인지 확인해 정확도 후퇴를 막습니다.
+
 ## 검증, 과정 기록, 알려진 문제
 
 - 수동 검증 기록(① 정상 CSV ② cp949 CSV ③ 컬럼 누락 CSV): manual_test_log.md
@@ -88,6 +113,7 @@ Streamlit은 사이드바 필터를 하나만 움직여도 `app.py` 전체를 �
 | `prompts/` | LLM 프롬프트 |
 | `data/` | `actuals.csv`, `transcripts/`. 실행하면 `exports.csv`, `fx.csv`, `forecasts.csv`, `raw_exports_last.csv`가 생기며 커밋하지 않음 |
 | `samples/` | 수동 검증용 CSV |
+| `backtest_ratio_rule.py` | ratio_rule별 시점 기준 백테스트 (MAPE 비교) |
 | `requirements.txt` | 라이브러리 목록 (streamlit 포함) |
 | `.env.example` | API 키 양식 (값은 비워 둠) |
 
