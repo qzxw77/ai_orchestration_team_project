@@ -65,7 +65,7 @@ BRIEF_BANNED_PHRASES = ("매수", "매도")
 # LLM 응답이 형식을 어기거나 facts에 없는 숫자를 쓰면 이 문장 틀로 대신한다 (mock도 같은 틀을 쓴다)
 BRIEF_TEMPLATES = (
     "{quarter} 예상 매출은 {estimate}({range})이며, 직전 분기 대비 {qoq} 변화가 예상됩니다.",
-    "{months} 수출 자료에 최근 4개 분기 평균 비율({ratio})을 적용한 추정입니다.",
+    "{months} 수출 자료에 최근 4개 분기 매출/수출 비율로 정한 적용 비율({ratio})을 곱한 추정입니다.",
     "최근 월 이천, 청주 메모리 수출은 전년 동월 대비 {export_yoy}(이상치 판정: {anomaly})이며, "
     "가이던스 비교 결과는 {consistency}입니다.",
 )
