@@ -18,8 +18,10 @@ RATIO_WINDOW = 4
 RATIO_RULE_AVG = "avg"      # 기준 분기 비율의 평균 (12주차까지의 방식)
 RATIO_RULE_LAST = "last"    # 가장 최근 기준 분기의 비율
 RATIO_RULE_DRIFT = "drift"  # 가장 최근 비율 x exp(기준 분기 사이 로그 비율 변화의 평균): 비율 추세를 한 분기 연장
-RATIO_RULES = (RATIO_RULE_AVG, RATIO_RULE_LAST, RATIO_RULE_DRIFT)
-DEFAULT_RATIO_RULE = RATIO_RULE_DRIFT
+RATIO_RULE_AUTO = "auto"    # 대상 분기 이전의 발표된 분기들로 위 3개 규칙을 채점해 오차가 가장 작은 규칙 사용
+BASE_RATIO_RULES = (RATIO_RULE_AVG, RATIO_RULE_LAST, RATIO_RULE_DRIFT)  # 동점이면 앞쪽(보수적인 규칙)을 고른다
+RATIO_RULES = BASE_RATIO_RULES + (RATIO_RULE_AUTO,)
+DEFAULT_RATIO_RULE = RATIO_RULE_AUTO
 
 FORECAST_STATUS_OK = "ok"
 FORECAST_STATUS_NO_DATA = "no_data"
@@ -61,7 +63,10 @@ def estimate_revenue(
     중앙값 = 분기 수출 추정 x 적용 비율 x 대상 분기 평균 환율이고, 적용 비율은 ratio_rule로 정한다.
         avg   기준 분기 비율의 평균
         last  가장 최근 기준 분기의 비율
-        drift 가장 최근 비율 x exp(기준 분기 사이 로그 비율 변화의 평균) (기본값)
+        drift 가장 최근 비율 x exp(기준 분기 사이 로그 비율 변화의 평균)
+        auto  대상 분기보다 앞선 기준 분기 각각을 "그 앞 RATIO_WINDOW개 분기로 추정"해 보고,
+              절대 오차 평균이 가장 작은 규칙(avg, last, drift 중)을 쓴다 (기본값).
+              채점할 분기가 없으면 avg를 쓴다. 대상 분기와 그 뒤의 실적은 채점에도 쓰지 않는다.
     하한, 상한 = 분기 수출 추정 x (기준 비율과 적용 비율 중 최솟값, 최댓값) x 대상 분기 평균 환율이다.
     (drift는 기준 비율 범위 밖으로 나갈 수 있어 적용 비율도 범위에 넣는다. avg에서는 예전과 같은 값이다.)
     대상 분기와 그 뒤의 실적은 읽지 않는다.
@@ -76,7 +81,8 @@ def estimate_revenue(
         forecast dict
             quarter (str), estimate_krw, lower_krw, upper_krw (float | None, 원),
             qoq_change_pct (float | None, 직전 분기 실적 대비 %), ratio_used (float | None),
-            months_available (int, 0~3), status ("ok", "no_data", "insufficient_history").
+            months_available (int, 0~3), status ("ok", "no_data", "insufficient_history"),
+            ratio_rule (str, 실제로 적용한 규칙. auto이면 고른 규칙 이름).
         status가 "ok"가 아니면 숫자 키 5개는 None이다.
 
     Raises:
@@ -94,6 +100,7 @@ def estimate_revenue(
         "ratio_used": None,
         "months_available": 0,
         "status": FORECAST_STATUS_NO_DATA,
+        "ratio_rule": ratio_rule,
     }
     if _quarter_index(target_quarter) is None:
         return result
@@ -125,7 +132,8 @@ def estimate_revenue(
     ratios = ((recent["revenue_krw"] / recent["fx_avg"]) / recent["export_usd"]).tolist()
     quarter_export_usd = float(target["export_usd"]) * MONTHS_PER_QUARTER / months_available
     fx_avg = float(target["fx_avg"])
-    ratio_used = _apply_ratio_rule(ratios, ratio_rule)
+    applied_rule = _select_ratio_rule(base) if ratio_rule == RATIO_RULE_AUTO else ratio_rule
+    ratio_used = _apply_ratio_rule(ratios, applied_rule)
     band = [min(ratios), max(ratios), ratio_used]
     estimate_krw = quarter_export_usd * ratio_used * fx_avg
 
@@ -141,8 +149,33 @@ def estimate_revenue(
         qoq_change_pct=qoq_change_pct,
         ratio_used=float(ratio_used),
         status=FORECAST_STATUS_OK,
+        ratio_rule=applied_rule,
     )
     return result
+
+
+def _select_ratio_rule(base: pd.DataFrame) -> str:
+    """기준 분기 후보 표(시간순)로 BASE_RATIO_RULES를 채점해 절대 오차 평균이 가장 작은 규칙을 고른다.
+
+    채점 대상은 base의 각 분기 b 중 b보다 앞선 분기가 RATIO_WINDOW개 이상 있는 분기이고,
+    b의 3개월 수출과 그 앞 RATIO_WINDOW개 분기의 비율로 b의 매출을 추정해 b의 실적과 비교한다.
+
+    Args:
+        base: estimate_revenue가 고른 기준 분기 후보 (quarter, export_usd, fx_avg, revenue_krw, 오름차순).
+
+    Returns:
+        고른 규칙 이름. 채점할 분기가 없으면 RATIO_RULE_AVG.
+    """
+    all_ratios = ((base["revenue_krw"] / base["fx_avg"]) / base["export_usd"]).tolist()
+    errors: dict[str, list[float]] = {rule: [] for rule in BASE_RATIO_RULES}
+    for index in range(RATIO_WINDOW, len(all_ratios)):
+        window = all_ratios[index - RATIO_WINDOW:index]
+        for rule in BASE_RATIO_RULES:
+            # 같은 분기의 수출, 환율을 쓰므로 매출 추정 오차 = 비율 추정 오차
+            errors[rule].append(abs(_apply_ratio_rule(window, rule) / all_ratios[index] - 1.0))
+    if not errors[RATIO_RULE_AVG]:
+        return RATIO_RULE_AVG
+    return min(BASE_RATIO_RULES, key=lambda rule: sum(errors[rule]) / len(errors[rule]))
 
 
 def _apply_ratio_rule(ratios: list[float], ratio_rule: str) -> float:
@@ -150,7 +183,7 @@ def _apply_ratio_rule(ratios: list[float], ratio_rule: str) -> float:
 
     Args:
         ratios: 0보다 큰 비율 목록 (기준 분기 조건에서 매출, 환율, 수출이 모두 양수라 비율도 양수다).
-        ratio_rule: RATIO_RULES 중 하나 (estimate_revenue에서 이미 검사함).
+        ratio_rule: BASE_RATIO_RULES 중 하나 (auto는 _select_ratio_rule로 먼저 바꾼다).
 
     Returns:
         적용 비율.

@@ -6,6 +6,10 @@
     - 환율: 공개일 이전 날짜만 사용 (대상 분기 평균 환율도 그날까지의 평균)
     - 실적: announced_date가 공개일보다 앞선 분기만 사용
 
+규칙 선택 자체도 표본 외로 확인하기 위해 두 가지를 함께 출력한다.
+    - IS/OOS 고정 분할: IS 기간(--split 이전 달)에서 MAPE가 가장 낮은 규칙을 골라 OOS 기간 성능을 잰다
+    - auto: 매 시점 그때까지 발표된 분기로 규칙을 고르므로 그 자체가 워크포워드(확장 윈도) 검증이다
+
 실행 (alt_backend_week11 폴더에서):
     python backtest_ratio_rule.py                  # samples/exports_normal.csv, data/fx.csv, data/actuals.csv
     python backtest_ratio_rule.py --exports data/exports.csv
@@ -59,6 +63,7 @@ def run_backtest(exports: pd.DataFrame, fx: pd.DataFrame, actuals: pd.DataFrame,
                 "release_date": release.date().isoformat(),
                 "quarter": quarter,
                 "months_available": forecast["months_available"],
+                "rule_used": forecast["ratio_rule"],
                 "estimate_krw": forecast["estimate_krw"],
                 "actual_krw": actual,
                 "error_pct": (forecast["estimate_krw"] / actual - 1) * 100 if actual else float("nan"),
@@ -67,9 +72,13 @@ def run_backtest(exports: pd.DataFrame, fx: pd.DataFrame, actuals: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-def summarize(table: pd.DataFrame) -> dict:
-    """백테스트 표를 MAPE, 평균 오차(편향), 3개월 반영 시점 MAPE로 요약한다."""
+def summarize(table: pd.DataFrame, start_ym: str | None = None, end_ym: str | None = None) -> dict:
+    """백테스트 표를 MAPE, 평균 오차(편향), 3개월 반영 시점 MAPE로 요약한다 (start_ym <= month < end_ym)."""
     done = table.dropna(subset=["error_pct"])
+    if start_ym:
+        done = done.loc[done["month"] >= start_ym]
+    if end_ym:
+        done = done.loc[done["month"] < end_ym]
     full = done.loc[done["months_available"] == forecaster.MONTHS_PER_QUARTER]
     return {
         "n": len(done),
@@ -77,6 +86,18 @@ def summarize(table: pd.DataFrame) -> dict:
         "bias_pct": done["error_pct"].mean(),
         "mape_full_quarter_pct": full["error_pct"].abs().mean(),
     }
+
+
+def is_oos_split(tables: dict[str, pd.DataFrame], split_ym: str, candidates: tuple[str, ...]) -> dict:
+    """IS(split_ym 이전)에서 MAPE가 가장 낮은 규칙을 고르고 그 규칙의 OOS(split_ym 이후) MAPE를 돌려준다.
+
+    Returns:
+        {"is_mape": {규칙: MAPE}, "oos_mape": {규칙: MAPE}, "picked": 고른 규칙, "picked_oos_mape": float}
+    """
+    is_mape = {rule: summarize(tables[rule], end_ym=split_ym)["mape_pct"] for rule in candidates}
+    oos_mape = {rule: summarize(tables[rule], start_ym=split_ym)["mape_pct"] for rule in candidates}
+    picked = min(candidates, key=lambda rule: is_mape[rule])
+    return {"is_mape": is_mape, "oos_mape": oos_mape, "picked": picked, "picked_oos_mape": oos_mape[picked]}
 
 
 def load_inputs(exports_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -90,14 +111,21 @@ def load_inputs(exports_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 def main() -> None:
     parser = argparse.ArgumentParser(description="ratio_rule별 시점 기준 백테스트")
     parser.add_argument("--exports", type=Path, default=ROOT / "samples" / "exports_normal.csv")
+    parser.add_argument("--split", default="2026-01", help="IS/OOS 경계 달 (이 달부터 OOS)")
     args = parser.parse_args()
     exports, fx, actuals = load_inputs(args.exports)
-    print(f"수출 {exports['ym'].min()}~{exports['ym'].max()}, 공개일 가정: 다음 달 {RELEASE_DAY}일")
-    print(f"{'ratio_rule':10s} {'n':>3s} {'MAPE':>7s} {'편향':>7s} {'3개월 MAPE':>10s}")
+    tables = {rule: run_backtest(exports, fx, actuals, rule) for rule in forecaster.RATIO_RULES}
+    print(f"수출 {exports['ym'].min()}~{exports['ym'].max()}, 공개일 가정: 다음 달 {RELEASE_DAY}일, OOS 시작 {args.split}")
+    print(f"{'ratio_rule':10s} {'n':>3s} {'MAPE':>7s} {'편향':>7s} {'3개월':>7s} {'IS':>7s} {'OOS':>7s}")
     for rule in forecaster.RATIO_RULES:
-        s = summarize(run_backtest(exports, fx, actuals, rule))
+        s, i, o = summarize(tables[rule]), summarize(tables[rule], end_ym=args.split), summarize(tables[rule], start_ym=args.split)
         mark = "  <- 기본값" if rule == forecaster.DEFAULT_RATIO_RULE else ""
-        print(f"{rule:10s} {s['n']:3d} {s['mape_pct']:6.1f}% {s['bias_pct']:6.1f}% {s['mape_full_quarter_pct']:9.1f}%{mark}")
+        print(f"{rule:10s} {s['n']:3d} {s['mape_pct']:6.1f}% {s['bias_pct']:6.1f}% {s['mape_full_quarter_pct']:6.1f}%"
+              f" {i['mape_pct']:6.1f}% {o['mape_pct']:6.1f}%{mark}")
+    split = is_oos_split(tables, args.split, forecaster.BASE_RATIO_RULES)
+    print(f"\n[IS/OOS 고정 분할] IS 최적 규칙: {split['picked']} -> OOS MAPE {split['picked_oos_mape']:.1f}%")
+    auto = tables[forecaster.RATIO_RULE_AUTO].dropna(subset=["error_pct"])
+    print("[auto 선택 이력]", ", ".join(f"{m}:{r}" for m, r in zip(auto["month"], auto["rule_used"])))
 
 
 if __name__ == "__main__":
